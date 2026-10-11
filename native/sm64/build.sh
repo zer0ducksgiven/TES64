@@ -20,6 +20,8 @@ grep -q 'read from the player' Makefile || patch -p1 -s < '$PATCHES/libsm64-romm
 grep -q 'NG64: the game.s handler without the level exit' src/decomp/game/mario_actions_cutscene.c || patch -p1 -s < '$PATCHES/libsm64-stardance.patch'
 grep -q 'sm64_ng64_offer_grab' src/libsm64.c || patch -p1 -s < '$PATCHES/libsm64-grab.patch'
 grep -q 'register s64 x1' src/decomp/engine/surface_collision.c || patch -p1 -s < '$PATCHES/libsm64-bigworld.patch'
+# TES64: a spatial grid for static surfaces (Skyrim streams tens of thousands of triangles)
+grep -q 'loaded_surface_iter_begin' src/load_surfaces.c || patch -p1 -s --binary < '$HERE/libsm64-tes64-grid.patch'
 # anything downloaded from the decomp goes, so it can't end up in the dll
 rm -f src/decomp/mario/*.inc.c src/decomp/mario/*.inc.h build/src/decomp/mario/*.o build/src/decomp/mario/*.d
 mingw32-make lib CC=gcc OS=Windows_NT -j8 >/dev/null 2>&1

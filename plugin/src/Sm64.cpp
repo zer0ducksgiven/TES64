@@ -33,6 +33,7 @@ bool Sm64::Init()
 	          Resolve(dll, set_mario_position, "sm64_set_mario_position") &
 	          Resolve(dll, set_mario_faceangle, "sm64_set_mario_faceangle") &
 	          Resolve(dll, set_mario_health, "sm64_set_mario_health") &
+	          Resolve(dll, set_mario_water_level, "sm64_set_mario_water_level") &
 	          Resolve(dll, rom_normalize, "tes64_rom_normalize") &
 	          Resolve(dll, load_mario_model, "tes64_load_mario_model") &
 	          Resolve(dll, rom_error, "tes64_rom_error");

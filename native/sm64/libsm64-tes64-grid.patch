@@ -1,0 +1,157 @@
+diff -ru --strip-trailing-cr orig/src/decomp/engine/surface_collision.c new/src/decomp/engine/surface_collision.c
+--- a/src/decomp/engine/surface_collision.c	2026-10-12 00:45:14.730976500 +0100
++++ b/src/decomp/engine/surface_collision.c	2026-10-12 00:45:42.025676700 +0100
+@@ -17,6 +17,7 @@
+ 
+     ceil = NULL;
+ 
++    loaded_surface_iter_begin( x, z );
+     uint32_t groupCount = loaded_surface_iter_group_count();
+     for( int i = 0; i < groupCount; ++i ) {
+     uint32_t surfCount = loaded_surface_iter_group_size( i );
+@@ -95,6 +96,7 @@
+     f32 height;
+     struct SM64SurfaceCollisionData *floor = NULL;
+ 
++    loaded_surface_iter_begin( x, z );
+     uint32_t groupCount = loaded_surface_iter_group_count();
+     for( int i = 0; i < groupCount; ++i ) {
+     uint32_t surfCount = loaded_surface_iter_group_size( i );
+@@ -171,6 +173,7 @@
+         radius = 200.0f;
+     }
+ 
++    loaded_surface_iter_begin( x, z );
+     uint32_t groupCount = loaded_surface_iter_group_count();
+     for( int i = 0; i < groupCount; ++i ) {
+     uint32_t surfCount = loaded_surface_iter_group_size( i );
+diff -ru --strip-trailing-cr orig/src/load_surfaces.c new/src/load_surfaces.c
+--- a/src/load_surfaces.c	2026-10-12 00:45:14.673974800 +0100
++++ b/src/load_surfaces.c	2026-10-12 00:45:57.424191700 +0100
+@@ -208,6 +208,76 @@
+     surface->isValid = 1;
+ }
+ 
++#define GRID_MARGIN 256
++#define GMIN( a, b ) ((a) < (b) ? (a) : (b))
++#define GMAX( a, b ) ((a) > (b) ? (a) : (b))
++static s32 s_gridCell = 512, s_gridMinX, s_gridMinZ, s_gridW, s_gridH;
++static uint32_t *s_gridStart = NULL, *s_gridIdx = NULL;
++static uint32_t s_queryStart = 0, s_queryCount = 0;
++
++static void grid_free( void )
++{
++    free( s_gridStart ); s_gridStart = NULL;
++    free( s_gridIdx ); s_gridIdx = NULL;
++    s_gridW = s_gridH = 0;
++}
++
++static void grid_cells_of( const struct SM64SurfaceCollisionData *s, s32 *cx0, s32 *cz0, s32 *cx1, s32 *cz1 )
++{
++    s32 mnx = GMIN( GMIN( s->vertex1[0], s->vertex2[0] ), s->vertex3[0] ) - GRID_MARGIN;
++    s32 mxx = GMAX( GMAX( s->vertex1[0], s->vertex2[0] ), s->vertex3[0] ) + GRID_MARGIN;
++    s32 mnz = GMIN( GMIN( s->vertex1[2], s->vertex2[2] ), s->vertex3[2] ) - GRID_MARGIN;
++    s32 mxz = GMAX( GMAX( s->vertex1[2], s->vertex2[2] ), s->vertex3[2] ) + GRID_MARGIN;
++    *cx0 = GMAX( 0, (mnx - s_gridMinX) / s_gridCell ); *cx1 = GMIN( s_gridW - 1, (mxx - s_gridMinX) / s_gridCell );
++    *cz0 = GMAX( 0, (mnz - s_gridMinZ) / s_gridCell ); *cz1 = GMIN( s_gridH - 1, (mxz - s_gridMinZ) / s_gridCell );
++}
++
++static void grid_build( void )
++{
++    grid_free();
++    if( s_static_surface_count < 64 ) return;   // a handful: the plain list is as fast
++    s32 mnx = 0x7FFFFFFF, mnz = 0x7FFFFFFF, mxx = -0x7FFFFFFF, mxz = -0x7FFFFFFF;
++    for( uint32_t i = 0; i < s_static_surface_count; ++i ) {
++        struct SM64SurfaceCollisionData *s = &s_static_surface_list[i];
++        mnx = GMIN( mnx, GMIN( GMIN( s->vertex1[0], s->vertex2[0] ), s->vertex3[0] ) );
++        mxx = GMAX( mxx, GMAX( GMAX( s->vertex1[0], s->vertex2[0] ), s->vertex3[0] ) );
++        mnz = GMIN( mnz, GMIN( GMIN( s->vertex1[2], s->vertex2[2] ), s->vertex3[2] ) );
++        mxz = GMAX( mxz, GMAX( GMAX( s->vertex1[2], s->vertex2[2] ), s->vertex3[2] ) );
++    }
++    s_gridMinX = mnx - GRID_MARGIN; s_gridMinZ = mnz - GRID_MARGIN;
++    s_gridCell = 512;
++    while( ((s64)(mxx - mnx) + 2 * GRID_MARGIN) / s_gridCell > 1024 || ((s64)(mxz - mnz) + 2 * GRID_MARGIN) / s_gridCell > 1024 )
++        s_gridCell *= 2;
++    s_gridW = (mxx - mnx + 2 * GRID_MARGIN) / s_gridCell + 1;
++    s_gridH = (mxz - mnz + 2 * GRID_MARGIN) / s_gridCell + 1;
++    uint32_t cells = (uint32_t)s_gridW * (uint32_t)s_gridH;
++    s_gridStart = calloc( cells + 1, sizeof( uint32_t ));
++    s32 x0, z0, x1, z1;
++    for( uint32_t i = 0; i < s_static_surface_count; ++i ) {
++        grid_cells_of( &s_static_surface_list[i], &x0, &z0, &x1, &z1 );
++        for( s32 cz = z0; cz <= z1; ++cz ) for( s32 cx = x0; cx <= x1; ++cx ) s_gridStart[cz * s_gridW + cx + 1]++;
++    }
++    for( uint32_t c = 0; c < cells; ++c ) s_gridStart[c + 1] += s_gridStart[c];
++    s_gridIdx = malloc( sizeof( uint32_t ) * (s_gridStart[cells] ? s_gridStart[cells] : 1) );
++    uint32_t *fill = malloc( sizeof( uint32_t ) * cells );
++    memcpy( fill, s_gridStart, sizeof( uint32_t ) * cells );
++    for( uint32_t i = 0; i < s_static_surface_count; ++i ) {
++        grid_cells_of( &s_static_surface_list[i], &x0, &z0, &x1, &z1 );
++        for( s32 cz = z0; cz <= z1; ++cz ) for( s32 cx = x0; cx <= x1; ++cx ) s_gridIdx[fill[cz * s_gridW + cx]++] = i;
++    }
++    free( fill );
++}
++
++void loaded_surface_iter_begin( f32 x, f32 z )
++{
++    if( !s_gridStart ) { s_queryStart = 0; s_queryCount = s_static_surface_count; return; }
++    s64 cx = ((s64)x - s_gridMinX) / s_gridCell, cz = ((s64)z - s_gridMinZ) / s_gridCell;
++    if( x < s_gridMinX || z < s_gridMinZ || cx >= s_gridW || cz >= s_gridH ) { s_queryStart = 0; s_queryCount = 0; return; }
++    uint32_t c = (uint32_t)(cz * s_gridW + cx);
++    s_queryStart = s_gridStart[c];
++    s_queryCount = s_gridStart[c + 1] - s_gridStart[c];
++}
++
+ uint32_t loaded_surface_iter_group_count( void )
+ {
+     return 1 + s_surface_object_count;
+@@ -216,7 +286,7 @@
+ uint32_t loaded_surface_iter_group_size( uint32_t groupIndex )
+ {
+     if( groupIndex == 0 )
+-        return s_static_surface_count;
++        return s_queryCount;
+ 
+     return s_surface_object_list[ groupIndex - 1 ].surfaceCount;
+ }
+@@ -224,7 +294,7 @@
+ struct SM64SurfaceCollisionData *loaded_surface_iter_get_at_index( uint32_t groupIndex, uint32_t surfaceIndex )
+ {
+     if( groupIndex == 0 )
+-        return &s_static_surface_list[ surfaceIndex ];
++        return &s_static_surface_list[ s_gridIdx ? s_gridIdx[ s_queryStart + surfaceIndex ] : surfaceIndex ];
+ 
+     return &s_surface_object_list[ groupIndex - 1 ].engineSurfaces[ surfaceIndex ];
+ }
+@@ -239,6 +309,9 @@
+ 
+     for( int i = 0; i < numSurfaces; ++i )
+         engine_surface_from_lib_surface( &s_static_surface_list[i], &surfaceArray[i], NULL );
++
++    grid_build();
++    s_queryStart = 0; s_queryCount = s_static_surface_count;
+ }
+ 
+ uint32_t surfaces_load_object( const struct SM64SurfaceObject *surfaceObject )
+@@ -325,6 +398,8 @@
+ void surfaces_unload_all( void )
+ {
+     free( s_static_surface_list );
++    grid_free();
++    s_queryCount = 0;
+     s_static_surface_count = 0;
+     s_static_surface_list = NULL;
+ 
+diff -ru --strip-trailing-cr orig/src/load_surfaces.h new/src/load_surfaces.h
+--- a/src/load_surfaces.h	2026-10-12 00:45:14.687974200 +0100
++++ b/src/load_surfaces.h	2026-10-12 00:45:41.973433600 +0100
+@@ -3,6 +3,9 @@
+ #include "decomp/include/types.h"
+ #include "libsm64.h"
+ 
++// TES64: static surfaces are bucketed in an XZ grid; begin() picks the cell a query is in (group 0 then iterates
++// just that cell's surfaces). Mario's queries reach at most ~200 units sideways, which the grid's margin covers.
++extern void loaded_surface_iter_begin( f32 x, f32 z );
+ extern uint32_t loaded_surface_iter_group_count( void );
+ extern uint32_t loaded_surface_iter_group_size( uint32_t groupIndex );
+ extern struct SM64SurfaceCollisionData *loaded_surface_iter_get_at_index( uint32_t groupIndex, uint32_t surfaceIndex );

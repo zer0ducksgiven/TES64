@@ -20,6 +20,7 @@ add_commonlibsse_plugin(TES64
 		src/Sm64.cpp
 		src/Input.cpp
 		src/Mario.cpp
+		src/Collision.cpp
 )
 target_include_directories(TES64 PRIVATE src ../native/sm64/dist)
 target_precompile_headers(TES64 PRIVATE src/PCH.h)

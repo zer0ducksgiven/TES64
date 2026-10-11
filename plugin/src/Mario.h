@@ -25,7 +25,8 @@ public:
 private:
 	void Enable(RE::PlayerCharacter* a_player);
 	void Disable();
-	void LoadGround(RE::PlayerCharacter* a_player);
+	void StreamWorld(RE::PlayerCharacter* a_player, bool a_force);
+	void UpdateWater(RE::PlayerCharacter* a_player);
 	void Tick(RE::PlayerCharacter* a_player);
 
 	std::atomic<bool>    _toggleRequested{ false };
@@ -35,6 +36,9 @@ private:
 	float                _telemetryTimer = 0.0f;
 	bool                 _seenUpdate = false;
 	std::optional<float> _savedGravity;
+	RE::NiPoint3         _streamCenter;
+	RE::bhkWorld*        _streamWorld = nullptr;
+	bool                 _streamed = false;
 	SM64MarioState       _state{};
 	SM64MarioGeometryBuffers _geo{};
 	std::vector<float>   _geoPos, _geoNormal, _geoColor, _geoUv;
