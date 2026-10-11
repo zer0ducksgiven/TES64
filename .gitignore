@@ -1,0 +1,8 @@
+dist/
+plugin/build/
+native/sm64/dist/
+extern/
+*.z64
+*.v64
+*.n64
+*.7z
