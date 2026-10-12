@@ -34,7 +34,7 @@ settings menu). Uninstall from Windows' Installed apps.
 - **Combat**: Mario's punches, kicks, dives, slide kicks, ground pounds and stomps hurt Skyrim's people and creatures
   (strong hits knock them down) and shove physics clutter. Skyrim's hits knock Mario back, SM64-style.
 - **Health**: Mario's power meter shows your Skyrim health. Falls and burns in SM64 cost Skyrim health.
-- **Meters**: the POWER meter (top left) shows your health with red wedges. Under it, green wedges are stamina and blue wedges magicka. Skyrim's own bars are hidden while you're Mario.
+- **Meters**: your health is the POWER meter in the bottom right, its wedges red. To its left, green wedges are stamina and blue wedges magicka, in wooden rings. Skyrim's own bars are hidden while you're Mario.
 - **Coins and stars**: coins are your gold (picking gold up heals, like SM64's coins), stars are completed quests.
 - **Caps**: invisibility (spell or potion) gives the Vanish Cap, the armour spells (Oakflesh...) the Metal Cap,
   Whirlwind Sprint the Wing Cap.

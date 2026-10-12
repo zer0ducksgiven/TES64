@@ -1,5 +1,6 @@
 #include "DebugChannel.h"
 #include "Config.h"
+#include "Hud.h"
 #include "Reactions.h"
 
 #include <fstream>
@@ -34,6 +35,9 @@ void DebugChannel::Poll()
 			auto caster = player ? player->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant) : nullptr;
 			if (spell && caster) caster->CastSpellImmediate(spell, false, player, 1.0f, false, 0.0f, player);
 			logger::info("debug: cast {} -> {}", arg, spell && caster ? "ok" : "no such spell");
+		} else if (cmd == "snap") {
+			Hud::RequestSnapshot();
+			logger::info("debug: snap -> next frame");
 		} else if (cmd == "react") {
 			Reactions::ForceNext();
 			logger::info("debug: react -> next tick");

@@ -6,7 +6,8 @@
 namespace Hud
 {
 	bool Init(const std::uint8_t* a_rom, std::size_t a_len);   // pull the graphics from the ROM
-	void InstallHook();                                          // the swap chain's Present
+	void InstallHook();
+	void RequestSnapshot();                                       // telemetry: the next frame is written to TES64_snap.bmp                                          // the swap chain's Present
 
 	// main thread, every frame
 	void Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, float a_delta);

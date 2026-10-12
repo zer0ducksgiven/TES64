@@ -4,6 +4,7 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <dxgi.h>
+#include <fstream>
 #include <unordered_map>
 
 #pragma comment(lib, "d3dcompiler.lib")
@@ -236,40 +237,100 @@ namespace
 		return it != s_images.end() && it->second.srv ? &it->second : nullptr;
 	}
 
-	// SM64's HUD with Skyrim's three meters in it: the POWER meter (health) top-left as it is, its wedges red; stamina
-	// (green) and magicka (blue) wedges underneath, with no frame and no text
-	std::vector<Quad> Layout(const State& a_s, float a_screenH)
+	// the HUD in SM64 pixels scaled to the screen: coins and stars top left, as SM64; Skyrim's three meters bottom right,
+	// POWER (health) at the corner, the stamina and magicka wedges in wooden rings to its left
+	constexpr float kBlockW = 140.0f, kBlockH = 64.0f, kMargin = 6.0f;
+	std::vector<Quad> Layout(const State& a_s, float a_width, float a_height)
 	{
 		std::vector<Quad> q;
-		const float s = a_screenH / 240.0f * 0.75f;   // SM64 pixels -> screen
-		const float x0 = 14 * s, y0 = 12 * s;
-		auto add = [&](const std::string& a_name, float x, float y, float w, float h) {
-			if (auto im = Img(a_name)) q.push_back({ im, x0 + x * s, y0 + y * s, w * s, h * s });
+		const float s = a_height / 240.0f * 0.75f;   // SM64 pixels -> screen
+		const float tlX = 14 * s, tlY = 12 * s;
+		const float brX = a_width - (kBlockW + kMargin) * s, brY = a_height - (kBlockH + kMargin) * s;
+		auto add = [&](const std::string& a_name, float ox, float oy, float x, float y, float w, float h) {
+			if (auto im = Img(a_name)) q.push_back({ im, ox + x * s, oy + y * s, w * s, h * s });
 		};
+		auto top = [&](const std::string& a_name, float x, float y, float w, float h) { add(a_name, tlX, tlY, x, y, w, h); };
+		auto bottom = [&](const std::string& a_name, float x, float y, float w, float h) { add(a_name, brX, brY, x, y, w, h); };
 
-		add("meter_left", 0, 0, 32, 64);
-		add("meter_right", 32, 0, 32, 64);
-		if (a_s.wedges > 0) add("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)) + "|health", 16, 16, 32, 32);
-
+		// coins and stars, top left
 		auto counter = [&](const char* a_icon, int a_value, float y) {
-			add(a_icon, 72, y, 16, 16);
-			add("times", 88, y, 16, 16);
+			top(a_icon, 72, y, 16, 16);
+			top("times", 88, y, 16, 16);
 			auto digits = std::to_string(std::clamp(a_value, 0, 9999));
-			for (std::size_t i = 0; i < digits.size(); i++) add(std::string("digit_") + digits[i], 104 + 12.0f * i, y, 16, 16);
+			for (std::size_t i = 0; i < digits.size(); i++) top(std::string("digit_") + digits[i], 104 + 12.0f * i, y, 16, 16);
 		};
 		counter("coin", a_s.coins, 8);
 		counter("star", a_s.stars, 30);
 
-		// stamina and magicka: just the wedges, smaller than the POWER meter, side by side under it
-		constexpr float kWedge = 20.0f;
-		if (a_s.stamina > 0) add("pie_" + std::to_string(a_s.stamina) + "|" + kStamina.key, 10, 70, kWedge, kWedge);
-		if (a_s.magicka > 0) add("pie_" + std::to_string(a_s.magicka) + "|" + kMagicka.key, 34, 70, kWedge, kWedge);
+		// bottom right: stamina and magicka wedges in wooden rings, then the POWER meter at the corner
+		constexpr float kRing = 32.0f, kWedge = 20.0f, kInset = 6.0f;
+		bottom("wood_ring", 0, 32, kRing, kRing);
+		if (a_s.stamina > 0) bottom("pie_" + std::to_string(a_s.stamina) + "|" + kStamina.key, kInset, 32 + kInset, kWedge, kWedge);
+		bottom("wood_ring", 36, 32, kRing, kRing);
+		if (a_s.magicka > 0) bottom("pie_" + std::to_string(a_s.magicka) + "|" + kMagicka.key, 36 + kInset, 32 + kInset, kWedge, kWedge);
+		bottom("meter_left", 76, 0, 32, 64);
+		bottom("meter_right", 108, 0, 32, 64);
+		if (a_s.wedges > 0) bottom("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)) + "|health", 92, 16, 32, 32);
 		return q;
 	}
 
 	// time the HUD takes per frame (telemetry: logged with the HUD line, once a second)
+	UINT   s_backWidth = 0, s_backHeight = 0;
 	double s_drawMs = 0.0;
 	int    s_drawFrames = 0;
+
+	std::atomic<bool> s_snapRequested{ false };
+
+	// the back buffer as it is when the HUD is drawn: a BMP next to the logs (what the screen captures can't show)
+	void Snapshot(IDXGISwapChain* a_swap)
+	{
+		ID3D11Texture2D* back = nullptr;
+		if (FAILED(a_swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back)))) return;
+		D3D11_TEXTURE2D_DESC d{};
+		back->GetDesc(&d);
+		const bool rgba = d.Format == DXGI_FORMAT_R8G8B8A8_UNORM;
+		d.Usage = D3D11_USAGE_STAGING;
+		d.BindFlags = 0;
+		d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		d.MiscFlags = 0;
+		ID3D11Texture2D* staging = nullptr;
+		D3D11_MAPPED_SUBRESOURCE m{};
+		if (SUCCEEDED(s_device->CreateTexture2D(&d, nullptr, &staging))) {
+			s_context->CopyResource(staging, back);
+			if (SUCCEEDED(s_context->Map(staging, 0, D3D11_MAP_READ, 0, &m))) {
+				const auto dir = logger::log_directory();
+				if (dir) {
+					const auto  path = *dir / "TES64_snap.bmp";
+					const UINT  w = d.Width, h = d.Height;
+					std::ofstream f(path, std::ios::binary);
+					std::uint8_t hdr[54] = {};
+					const std::uint32_t size = 54 + w * h * 4;
+					std::memcpy(hdr, "BM", 2);
+					std::memcpy(hdr + 2, &size, 4);
+					const std::uint32_t off = 54, info = 40, planes_bpp = 1 | (32 << 16);
+					std::memcpy(hdr + 10, &off, 4);
+					std::memcpy(hdr + 14, &info, 4);
+					const std::int32_t iw = static_cast<std::int32_t>(w), ih = static_cast<std::int32_t>(h);
+					std::memcpy(hdr + 18, &iw, 4);
+					std::memcpy(hdr + 22, &ih, 4);
+					std::memcpy(hdr + 26, &planes_bpp, 4);
+					f.write(reinterpret_cast<const char*>(hdr), 54);
+					for (int y = static_cast<int>(h) - 1; y >= 0; y--) {   // BMP rows run bottom up
+						const auto* row = static_cast<const std::uint8_t*>(m.pData) + static_cast<std::size_t>(y) * m.RowPitch;
+						for (UINT x = 0; x < w; x++) {
+							std::uint8_t px[4] = { row[x * 4 + 2], row[x * 4 + 1], row[x * 4], 255 };   // BGRA
+							if (rgba) { px[0] = row[x * 4 + 2]; px[2] = row[x * 4]; }
+							f.write(reinterpret_cast<const char*>(px), 4);
+						}
+					}
+					logger::info("hud: snapshot written ({}x{})", w, h);
+				}
+				s_context->Unmap(staging, 0);
+			}
+			staging->Release();
+		}
+		back->Release();
+	}
 
 	HRESULT STDMETHODCALLTYPE PresentHook(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 	{
@@ -288,7 +349,10 @@ namespace
 				DXGI_SWAP_CHAIN_DESC d{};
 				a_swap->GetDesc(&d);
 				const auto start = std::chrono::steady_clock::now();
-				Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Height)));
+				s_backWidth = d.BufferDesc.Width;
+				s_backHeight = d.BufferDesc.Height;
+				Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
+				if (s_snapRequested.exchange(false)) Snapshot(a_swap);
 				s_drawMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 				s_drawFrames++;
 			}
@@ -369,6 +433,36 @@ namespace
 	}
 }
 
+// a wooden ring for the wedges, in the POWER frame's own wood (tan to orange-brown, dark outline), tree-ring grain
+// and light from the upper left. Generated here (not from the ROM): the wedges sit inside it.
+Image MakeWoodRing()
+{
+	constexpr int N = 32;
+	Image         im{ N, N, std::vector<std::uint8_t>(N * N * 4, 0), nullptr };
+	const float   c = (N - 1) / 2.0f;
+	for (int y = 0; y < N; y++) {
+		for (int x = 0; x < N; x++) {
+			const float dx = x - c, dy = y - c;
+			const float r = std::sqrt(dx * dx + dy * dy);
+			const float ang = std::atan2(dy, dx);
+			std::uint8_t* p = &im.rgba[(y * N + x) * 4];
+			if (r > 15.6f || r < 9.2f) continue;                                // outside the ring: transparent
+			if (r > 14.6f || r < 9.8f) {                                        // the dark outline
+				p[0] = 110; p[1] = 60; p[2] = 24; p[3] = 255;
+				continue;
+			}
+			const float rings = 0.5f + 0.5f * std::sin(r * 2.1f + 0.9f * std::sin(ang * 3.0f));   // tree rings
+			const float streaks = 0.5f + 0.5f * std::sin((x + 0.45f * y) * 1.1f + 1.6f * std::sin(r * 0.9f));   // grain lines
+			const float facing = -(dx + dy) / (r * 1.4142f);                  // +1 toward the upper left
+			const float t = std::clamp(0.12f + 0.38f * rings + 0.25f * streaks + 0.25f * (0.5f + 0.5f * facing), 0.0f, 1.0f);
+			const float dark[3] = { 255, 172, 90 }, light[3] = { 255, 230, 139 };
+			for (int k = 0; k < 3; k++) p[k] = static_cast<std::uint8_t>(dark[k] + (light[k] - dark[k]) * t);
+			p[3] = 255;
+		}
+	}
+	return im;
+}
+
 bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 {
 	HMODULE dll = ::GetModuleHandleW(L"sm64.dll");
@@ -395,9 +489,12 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
 		}
 	}
+	s_images["wood_ring"] = MakeWoodRing();
 	logger::info("hud: {} graphics from the ROM", s_images.size());
 	return !s_images.empty();
 }
+
+void Hud::RequestSnapshot() { s_snapRequested = true; }
 
 void Hud::InstallHook()
 {
@@ -479,7 +576,9 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 		s_telTimer = 0.0f;
 		logger::info("HUD shown={} wedges={} stamina={} magicka={} coins={} stars={} gpu={} draw={:.3f}ms", s_state.show ? 1 : 0, a_wedges, stamina, magicka, s_state.coins, s_stars, s_gpuReady ? 1 : 0,
 			s_drawFrames ? s_drawMs / s_drawFrames : 0.0);
-		logger::info("HUD vanilla meters hide cost={:.3f}ms (per call, 5 a second)", s_vanillaMs / 5.0);
+		const auto engine = RE::BSGraphics::State::GetSingleton();
+		logger::info("HUD vanilla meters hide cost={:.3f}ms (per call, 5 a second), back buffer {}x{}, engine screen {}x{}, viewport {}x{}",
+			s_vanillaMs / 5.0, s_backWidth, s_backHeight, engine->screenWidth, engine->screenHeight, engine->frameBufferViewport[0], engine->frameBufferViewport[1]);
 		s_drawMs = 0.0;
 		s_drawFrames = 0;
 		s_vanillaMs = 0.0;
