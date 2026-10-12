@@ -23,6 +23,10 @@ namespace Pose
 	// a_face: Mario's SM64 facing (where he runs)
 	void Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face);
 
+	// Skyrim's own full-body animation (furniture, a killmove): Mario's body is the player's and he goes where they are
+	bool        Mirroring();
+	void        ForceMirror(int a_mode);   // debug (the harness): -1 by the game, 0 off, 1 on
+
 	bool        Active();   // an action is on (and a moment after): Mario faces the crosshair
 	float       Weight();   // 0 = Mario's own arms, 1 = Skyrim's (the larger of the two arms)
 	float       WeightRight();

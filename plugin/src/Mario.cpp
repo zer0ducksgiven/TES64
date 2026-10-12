@@ -145,8 +145,14 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	float       smPos[3];
 	for (int axis = 0; axis < 3; axis++) smPos[axis] = _prevSm64[axis] + (_state.position[axis] - _prevSm64[axis]) * alpha;
 	auto pos = ToSkyrim(smPos);
+	if (Pose::Mirroring()) {
+		// furniture and killmoves: Skyrim moves the player, and Mario goes with them (not the other way)
+		pos = a_player->GetPosition();
+		const auto sm = ToSm64(pos);
+		std::copy_n(sm.data(), 3, smPos);
+	}
 	Pose::Compute(a_player, alpha, _state.faceAngle);   // Skyrim's upper-body animation on Mario for this frame
-	a_player->SetPosition(pos, true);
+	if (!Pose::Mirroring()) a_player->SetPosition(pos, true);
 	_lastSet = a_player->GetPosition();
 	_haveLastSet = true;
 	if (auto controller = a_player->GetCharController()) controller->fallStartHeight = pos.z;
@@ -475,9 +481,18 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 		if (dx * dx + dz * dz > 1e-4f) { in.camLookX = dx; in.camLookZ = dz; }
 	}
 
-	// Skyrim swinging, casting, blocking or drawing: Mario's body turns to the crosshair and his upper body plays Skyrim's
-	// animation (Pose.cpp, drawn by Render); SM64 still steers him with the stick, so he strafes. The hidden player does
-	// the damage.
+	// Skyrim's furniture or killmove: Mario is where the player is, facing their way, and doesn't move on his own; his body
+	// is the player's (Pose.cpp). Otherwise, Skyrim swinging, casting, blocking or drawing: his body turns to the crosshair
+	// and his upper body plays Skyrim's animation (drawn by Render); SM64 still steers him with the stick, so he strafes.
+	if (Pose::Mirroring()) {
+		in = SM64MarioInputs{};
+		input->dive = false;
+		const auto sm = ToSm64(a_player->GetPosition());
+		Sm64::set_mario_position(_id, sm[0], sm[1], sm[2]);
+		Sm64::set_mario_velocity(_id, 0.0f, 0.0f, 0.0f);
+		Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
+	}
+	// the hidden player's own attacks still go to the crosshair, which is SM64's dive input's business too
 	if (input->dive.exchange(false)) Sm64::set_mario_action(_id, 0x0188088A);   // ACT_DIVE (the pad's X tap)
 	Caps::Tick(a_player, _id);
 	if (Sm64::lock) Sm64::lock();

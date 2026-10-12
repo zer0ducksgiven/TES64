@@ -2,6 +2,7 @@
 #include "Collision.h"
 #include "Config.h"
 #include "Hud.h"
+#include "Pose.h"
 #include "Reactions.h"
 #include "Star.h"
 
@@ -87,6 +88,19 @@ void DebugChannel::Poll()
 				best->KillImmediate();
 			}
 			logger::info("debug: killnearest -> {}", best ? fmt::format("{:08X} at {:.0f}", best->GetFormID(), bestD) : "nobody");
+		} else if (cmd == "mirror") {
+			// -1: by the game (furniture, killmoves); 0 and 1 force it off and on, for the test
+			Pose::ForceMirror(std::stoi(arg));
+			logger::info("debug: mirror {}", arg);
+		} else if (cmd == "bones") {
+			// the player's skeleton's bone names, for the pose mapping (depth-first, indented)
+			std::function<void(RE::NiAVObject*, int)> walk = [&](RE::NiAVObject* o, int d) {
+				if (!o || d > 9) return;
+				logger::info("BONE {}{}", std::string(d * 2, ' '), o->name.c_str());
+				if (auto n = o->AsNode())
+					for (auto& c : n->GetChildren()) walk(c.get(), d + 1);
+			};
+			if (player) walk(player->Get3D(false), 0);
 		} else if (cmd == "flash") {
 			Hud::DumpFlash();
 		} else if (cmd == "star") {

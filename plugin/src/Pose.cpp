@@ -89,7 +89,7 @@ namespace
 	bool s_resolved = false;
 
 	// libsm64's parts: 0 root, 1 pelvis, 2 torso, 3 head, 4-6 left arm, 7-9 right arm (upper, fore, hand), 10-15 legs
-	constexpr int kParts = 16, kTorso = 2, kHead = 3, kLeftArm = 4, kRightArm = 7;
+	constexpr int kParts = 16, kPelvis = 1, kTorso = 2, kHead = 3, kLeftArm = 4, kRightArm = 7, kLeftLeg = 10, kRightLeg = 13;
 	float s_cur[kParts][16], s_prev[kParts][16];
 	float s_posCur[3], s_posPrev[3];
 	bool  s_layoutOk = false;   // Mario has his usual 16 parts this tick
@@ -105,6 +105,12 @@ namespace
 	// Skyrim's pelvis, spine and head in the actor's own frame while it stands idle: the pose is how far they move from that
 	bool          s_haveRest = false;
 	RE::NiMatrix3 s_restPelvis, s_restSpine, s_restHead;
+	RE::NiPoint3  s_restPelvisOff;   // the pelvis's place from the root, in the actor's frame, standing
+	// Skyrim's own full-body animation (furniture, a killmove): Mario's whole body is the player's, and he's where they are
+	bool  s_mirror = false;      // Skyrim is animating the whole body now
+	float s_mirrorW = 0.0f;      // how much of it shows (eased)
+	int   s_forceMirror = -1;    // debug: -1 by the game, 0 off, 1 on
+	Pose::Arm s_legL, s_legR;    // the legs' chains (their matrices aren't used: the parts are)
 	constexpr float kMaxTwist = 1.75f;   // radians the upper body turns on the legs; past that the legs turn too
 
 	// posed parts this frame (row-vector, relative to Mario, before the body yaw)
@@ -278,8 +284,18 @@ void Pose::OnTick(const float a_marioPos[3], int a_partCount)
 
 void Pose::Track(RE::PlayerCharacter* a_player, float a_delta)
 {
+	// Skyrim's own full-body animations: sitting, sleeping, using furniture (a chair, a bed, a workbench), and killmoves
+	// (its executions)
+	const auto state = a_player->AsActorState()->GetSitSleepState();
+	const bool furniture = a_player->GetOccupiedFurniture().get() != nullptr || state == RE::SIT_SLEEP_STATE::kIsSitting ||
+	                       state == RE::SIT_SLEEP_STATE::kIsSleeping;
+	const bool killmove = a_player->IsInKillMove();
+	s_mirror = s_forceMirror >= 0 ? s_forceMirror == 1 : (furniture || killmove);
+	Ease(s_mirrorW, s_mirror, a_delta);
+
 	bool right, left;
 	ArmActions(a_player, right, left);
+	if (s_mirror) right = left = true;   // the arms are the player's too
 	// the animation runs a little past the game's own attack flag
 	if (right) { s_actRight = true; s_tailRight = 0.3f; } else if ((s_tailRight -= a_delta) <= 0.0f) s_actRight = false;
 	if (left) { s_actLeft = true; s_tailLeft = 0.3f; } else if ((s_tailLeft -= a_delta) <= 0.0f) s_actLeft = false;
@@ -298,24 +314,32 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	if (!root) return;
 	auto spine = root->GetObjectByName("NPC Spine2 [Spn2]"), head = root->GetObjectByName("NPC Head [Head]"), pelvis = root->GetObjectByName("NPC Pelvis [Pelv]");
 	const RE::NiMatrix3 actorT = root->world.rotate.Transpose();
+	const RE::NiPoint3  rootAt = root->world.translate;
 
 	// idle: learn how Skyrim's pelvis, spine and head sit in the actor's frame
 	if (s_weight <= 0.0f && spine && head && pelvis) {
-		const auto pv = actorT * pelvis->world.rotate, sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
+		const auto         pv = actorT * pelvis->world.rotate, sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
+		const RE::NiPoint3 off = actorT * (pelvis->world.translate - rootAt);
 		s_restPelvis = s_haveRest ? Blend(s_restPelvis, pv, 0.1f) : pv;
 		s_restSpine = s_haveRest ? Blend(s_restSpine, sp, 0.1f) : sp;
 		s_restHead = s_haveRest ? Blend(s_restHead, hd, 0.1f) : hd;
+		s_restPelvisOff = s_haveRest ? RE::NiPoint3{ s_restPelvisOff.x + (off.x - s_restPelvisOff.x) * 0.1f,
+		                                  s_restPelvisOff.y + (off.y - s_restPelvisOff.y) * 0.1f,
+		                                  s_restPelvisOff.z + (off.z - s_restPelvisOff.z) * 0.1f }
+		                             : off;
 		s_haveRest = true;
 	}
 	if (!s_layoutOk || s_weight <= 0.01f) return;
 
+	// Skyrim's full-body animation: the body is the player's, facing the player's way (Mario faces that too, Mario.cpp)
+	const bool mirror = s_mirrorW > 0.0f;
 	// where he looks: the crosshair, against where SM64 runs him (the stick)
-	const float toCrosshair = Wrap(RE::NI_PI - a_player->GetAngleZ() - a_face);
+	const float toCrosshair = mirror ? 0.0f : Wrap(RE::NI_PI - a_player->GetAngleZ() - a_face);
 	// Skyrim's hips turning in the swing (a spin attack goes all the way round): his legs turn with them
 	float hips = 0.0f;
 	RE::NiMatrix3 unturn;   // the hips' turn taken back out of the spine's, which rides on them
 	unturn.entry[0][0] = unturn.entry[1][1] = unturn.entry[2][2] = 1.0f;
-	if (Config::bodyPose && s_haveRest && pelvis) {
+	if (!mirror && Config::bodyPose && s_haveRest && pelvis) {
 		const auto d = (actorT * pelvis->world.rotate) * s_restPelvis.Transpose();
 		hips = std::atan2(d.entry[1][0], d.entry[0][0]);   // about the actor's up, counter-clockwise
 		const float c = std::cos(-hips), s = std::sin(-hips);
@@ -324,7 +348,7 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	}
 	// the upper body twists toward the crosshair on legs that keep running where he goes, as far as a body can; more
 	// than that and the legs come round too. Without the body pose, all of him turns.
-	float twist = Config::bodyPose ? std::clamp(toCrosshair, -kMaxTwist, kMaxTwist) : 0.0f;
+	float twist = (Config::bodyPose && !mirror) ? std::clamp(toCrosshair, -kMaxTwist, kMaxTwist) : 0.0f;
 	s_yaw = (toCrosshair - twist + hips) * s_weight;
 	twist *= s_weight;
 
@@ -333,6 +357,26 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 		const V3 cur = Translation(s_cur[i]) - V3{ s_posCur[0], s_posCur[1], s_posCur[2] };
 		const V3 prev = Translation(s_prev[i]) - V3{ s_posPrev[0], s_posPrev[1], s_posPrev[2] };
 		s_parts[i] = { Rotation(s_cur[i]), prev + (cur - prev) * a_alpha, false };
+	}
+
+	// furniture and killmoves: the pelvis and the legs go where Skyrim's pelvis is (a seat lowers it, a bed tilts it), and
+	// the upper body moves with it (translation only: its own turn comes below)
+	if (mirror && s_haveRest && pelvis) {
+		const auto         pd = (actorT * pelvis->world.rotate) * s_restPelvis.Transpose();
+		const M3           dPel = Partial(ActorToMario(pd, a_face), s_mirrorW);
+		const RE::NiPoint3 dOff = actorT * (pelvis->world.translate - rootAt) - s_restPelvisOff;   // Skyrim units, actor's frame
+		const float        cy = std::cos(a_face), sy = std::sin(a_face);
+		const V3           ax[3] = { { -cy, 0, sy }, { sy, 0, cy }, { 0, 1, 0 } };   // the actor's axes in SM64
+		const V3           dT = (ax[0] * dOff.x + ax[1] * dOff.y + ax[2] * dOff.z) * (s_mirrorW / Config::scale);
+		const V3           pv = s_parts[kPelvis].t;
+		for (int i = kPelvis; i < kParts; i++) {
+			auto& p = s_parts[i];
+			p.t = pv + Apply(p.t - pv, dPel) + dT;
+			if (i == kPelvis || i >= kLeftLeg) {
+				p.rot = Mul(p.rot, dPel);
+				p.posed = true;
+			}
+		}
 	}
 
 	// torso and head: Skyrim's spine lean and twist (and the head's turn) on Mario's upper body, pivoting at his waist;
@@ -354,6 +398,12 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 		}
 	}
 
+	// the legs in furniture and killmoves: their bones' directions, as the arms' are
+	if (mirror && s_haveRest && pelvis) {
+		ComputeArm(root, kLeftLeg, "NPC L Thigh [LThg]", "NPC L Calf [LClf]", "NPC L Foot [Lft ]", s_mirrorW, s_legL);
+		ComputeArm(root, kRightLeg, "NPC R Thigh [RThg]", "NPC R Calf [RClf]", "NPC R Foot [Rft ]", s_mirrorW, s_legR);
+	}
+
 	if (s_wRight > 0.01f) s_rightOk = ComputeArm(root, kRightArm, "NPC R UpperArm [RUar]", "NPC R Forearm [RLar]", "NPC R Hand [RHnd]", s_wRight, s_right);
 	if (s_wLeft > 0.01f) s_leftOk = ComputeArm(root, kLeftArm, "NPC L UpperArm [LUar]", "NPC L Forearm [LLar]", "NPC L Hand [LHnd]", s_wLeft, s_left);
 	// an arm Skyrim isn't using still rides on the torso
@@ -362,9 +412,13 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	s_active = true;
 	if (Config::telemetry) {
 		static int s_log = 0;
-		if (s_log++ % 20 == 0) logger::info("POSE weight={:.2f} right={} left={} yaw={:.2f}", s_weight, s_rightOk, s_leftOk, s_yaw);
+		if (s_log++ % 20 == 0) logger::info("POSE weight={:.2f} right={} left={} yaw={:.2f} mirror={:.2f}", s_weight, s_rightOk, s_leftOk, s_yaw, s_mirrorW);
 	}
 }
+
+bool Pose::Mirroring() { return s_mirror || s_mirrorW > 0.01f; }
+
+void Pose::ForceMirror(int a_mode) { s_forceMirror = a_mode; }
 
 bool             Pose::Active() { return s_acting; }
 float            Pose::Weight() { return s_weight; }
