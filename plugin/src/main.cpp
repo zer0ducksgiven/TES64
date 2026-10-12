@@ -1,4 +1,5 @@
 #include "Combat.h"
+#include "Hud.h"
 #include "Config.h"
 #include "Input.h"
 #include "Mario.h"
@@ -36,6 +37,7 @@ namespace
 		}
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
 			if (Sm64::Init()) Render::WriteAtlas();
+			Hud::InstallHook();
 			Input::Register();
 			Combat::Register();
 			if (Config::telemetry) {

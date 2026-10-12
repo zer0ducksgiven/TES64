@@ -1,5 +1,6 @@
 #include "Sm64.h"
 #include "Config.h"
+#include "Hud.h"
 
 #include <fstream>
 
@@ -61,6 +62,7 @@ bool Sm64::Init()
 		logger::error("could not read Mario's model from the ROM ({}); it must be the US version", rom_error());
 		return false;
 	}
+	Hud::Init(rom.data(), rom.size());
 	s_ready = true;
 	logger::info("libsm64 ready");
 	return true;

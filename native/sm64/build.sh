@@ -28,7 +28,7 @@ mingw32-make lib CC=gcc OS=Windows_NT -j8 >/dev/null 2>&1
 cd '$HERE' && mkdir -p dist
 gcc -O2 -shared -DGBI_FLOATS -DSM64_LIB_EXPORT -DVERSION_US -DNO_SEGMENTED_MEMORY \
   -I'$LIB/src' -I'$LIB/src/decomp/include' -o dist/sm64.dll \
-  tes64_rom.c mario_rom_geo.c mario_rom_dl.c rom_format.c \
+  tes64_rom.c mario_rom_geo.c mario_rom_dl.c rom_format.c hud.c \
   \$(ls ../../extern/libsm64/build/src/*.o ../../extern/libsm64/build/src/decomp/*.o ../../extern/libsm64/build/src/decomp/*/*.o ../../extern/libsm64/build/src/decomp/*/*/*.o 2>/dev/null) \
   -static -static-libgcc -lm
 cp '$LIB/src/libsm64.h' dist/

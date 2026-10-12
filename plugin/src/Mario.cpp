@@ -7,6 +7,7 @@
 #include "Combat.h"
 #include "Arms.h"
 #include "DebugChannel.h"
+#include "Hud.h"
 
 namespace
 {
@@ -70,6 +71,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		if (Active()) Disable();
 		else Enable(a_player);
 	}
+	Hud::Tick(a_player, Active(), static_cast<int>(_state.health >> 8), a_delta);
 	if (!Active()) return;
 
 	auto ui = RE::UI::GetSingleton();

@@ -19,3 +19,10 @@ extern float g_ng64PartMtx[NG64_MAX_PARTS][4][4];
 
 SM64_LIB_FN int tes64_part_count(void) { return g_ng64PartCount; }
 SM64_LIB_FN const float *tes64_part_matrix(int part) { return (part >= 0 && part < g_ng64PartCount) ? &g_ng64PartMtx[part][0][0] : 0; }
+
+// SM64's HUD graphics from the ROM (hud.c, from NG64): digits, x, coin, Mario's head, star, power meter
+int ng64_hud_extract(const uint8_t *rom, size_t romLen);
+int ng64_hud_image(const char *name, const uint8_t **rgba, int *w, int *h);
+
+SM64_LIB_FN int tes64_hud_extract(const uint8_t *rom, size_t len) { return ng64_hud_extract(rom, len); }
+SM64_LIB_FN int tes64_hud_image(const char *name, const uint8_t **rgba, int *w, int *h) { return ng64_hud_image(name, rgba, w, h); }
