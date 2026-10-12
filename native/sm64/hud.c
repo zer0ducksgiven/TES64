@@ -24,10 +24,16 @@ static const Tile s_tiles[] = {
     { "digit_0", 0 }, { "digit_1", 1 }, { "digit_2", 2 }, { "digit_3", 3 }, { "digit_4", 4 },
     { "digit_5", 5 }, { "digit_6", 6 }, { "digit_7", 7 }, { "digit_8", 8 }, { "digit_9", 9 },
     { "times", 33 }, { "coin", 34 }, { "mario", 35 }, { "star", 36 }, { "camera", 56 }, { "lakitu", 57 },
+    // SM64's own lettering (no J, Q, V, X, Z: the ROM doesn't have them in this bank)
+    { "letter_A", 10 }, { "letter_B", 11 }, { "letter_C", 12 }, { "letter_D", 13 }, { "letter_E", 14 },
+    { "letter_F", 15 }, { "letter_G", 16 }, { "letter_H", 17 }, { "letter_I", 18 }, { "letter_K", 19 },
+    { "letter_L", 20 }, { "letter_M", 21 }, { "letter_N", 22 }, { "letter_O", 23 }, { "letter_P", 24 },
+    { "letter_R", 25 }, { "letter_S", 26 }, { "letter_T", 27 }, { "letter_U", 28 }, { "letter_W", 29 },
+    { "letter_Y", 30 },
 };
 
 typedef struct { char name[24]; int w, h; uint8_t *rgba; } Image;
-static Image s_images[40];
+static Image s_images[96];
 static int s_numImages;
 
 static void add_image(const char *name, const uint8_t *raw, int w, int h)

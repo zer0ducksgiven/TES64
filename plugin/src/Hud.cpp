@@ -14,7 +14,9 @@ namespace
 	struct State
 	{
 		bool show = false;
-		int  wedges = 8;
+		int  wedges = 8;     // POWER (health): SM64's own colours by level
+		int  stamina = 0;    // wedges of 8
+		int  magicka = 0;
 		int  coins = 0;
 		int  stars = 0;
 	};
@@ -29,6 +31,15 @@ namespace
 		ID3D11ShaderResourceView* srv = nullptr;
 	};
 	std::unordered_map<std::string, Image> s_images;
+
+	// the colour-coded meters: each is the power meter's art, tinted (keeps SM64's shading, changes the hue)
+	struct Tint
+	{
+		const char* key;
+		std::uint8_t r, g, b;
+	};
+	constexpr Tint kStamina{ "stamina", 80, 220, 70 };    // green, as Skyrim's stamina
+	constexpr Tint kMagicka{ "magicka", 170, 90, 255 };   // violet, apart from SM64's blue power
 
 	// ---- D3D11 -----------------------------------------------------------------------------------------------
 	using Present_t = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
@@ -118,6 +129,7 @@ namespace
 	{
 		const Image* image;
 		float        x, y, w, h;
+		float        u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;   // part of the texture (a cropped frame)
 	};
 
 	void Draw(IDXGISwapChain* a_swap, const std::vector<Quad>& a_quads)
@@ -185,10 +197,11 @@ namespace
 		if (SUCCEEDED(c->Map(s_vb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
 			auto v = static_cast<Vtx*>(m.pData);
 			for (int i = 0; i < n; i++) {
-				auto& q = a_quads[i];
-				float x0 = q.x / W * 2 - 1, x1 = (q.x + q.w) / W * 2 - 1;
-				float y0 = 1 - q.y / H * 2, y1 = 1 - (q.y + q.h) / H * 2;
-				Vtx quad[6] = { { x0, y0, 0, 0 }, { x1, y0, 1, 0 }, { x0, y1, 0, 1 }, { x1, y0, 1, 0 }, { x1, y1, 1, 1 }, { x0, y1, 0, 1 } };
+				const auto& q = a_quads[i];
+				const float x0 = q.x / W * 2 - 1, x1 = (q.x + q.w) / W * 2 - 1;
+				const float y0 = 1 - q.y / H * 2, y1 = 1 - (q.y + q.h) / H * 2;
+				Vtx quad[6] = { { x0, y0, q.u0, q.v0 }, { x1, y0, q.u1, q.v0 }, { x0, y1, q.u0, q.v1 },
+					{ x1, y0, q.u1, q.v0 }, { x1, y1, q.u1, q.v1 }, { x0, y1, q.u0, q.v1 } };
 				std::memcpy(v + i * 6, quad, sizeof(quad));
 			}
 			c->Unmap(s_vb, 0);
@@ -222,15 +235,18 @@ namespace
 		return it != s_images.end() && it->second.srv ? &it->second : nullptr;
 	}
 
-	// SM64's layout idea, moved clear of Skyrim's compass: the power meter top-left, coins and stars beside it
+	// SM64's HUD, Skyrim's three meters in its place: POWER (health, SM64's own frame and colours), then STAMINA and
+	// MAGICKA underneath, each the same frame and wedges in its own colour with its name above, in SM64's letters.
 	std::vector<Quad> Layout(const State& a_s, float a_screenH)
 	{
 		std::vector<Quad> q;
 		const float s = a_screenH / 240.0f * 0.75f;   // SM64 pixels -> screen
-		const float x0 = 24 * s / 0.75f * 0.5f, y0 = 20 * s / 0.75f * 0.5f;
-		auto add = [&](const std::string& a_name, float x, float y, float w, float h) {
-			if (auto im = Img(a_name)) q.push_back({ im, x0 + x * s, y0 + y * s, w * s, h * s });
+		const float x0 = 14 * s, y0 = 12 * s;
+		auto add = [&](const std::string& a_name, float x, float y, float w, float h, float a_v0 = 0.0f) {
+			if (auto im = Img(a_name)) q.push_back({ im, x0 + x * s, y0 + y * s, w * s, h * s, 0.0f, a_v0, 1.0f, 1.0f });
 		};
+
+		// row 1: POWER (the frame's own text, the health wedges)
 		add("meter_left", 0, 0, 32, 64);
 		add("meter_right", 32, 0, 32, 64);
 		if (a_s.wedges > 0) add("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)), 16, 16, 32, 32);
@@ -243,8 +259,26 @@ namespace
 		};
 		counter("coin", a_s.coins, 8);
 		counter("star", a_s.stars, 30);
+
+		// row 2: STAMINA and MAGICKA. The frame is cropped below its own POWER text (16 rows of 64), so the name goes
+		// there instead, in SM64's letters.
+		auto colourMeter = [&](const char* a_name, const Tint& a_tint, float a_frameX, int a_wedges) {
+			const std::string tint = a_tint.key;
+			const float       labelW = std::strlen(a_name) * 12.0f;
+			for (std::size_t i = 0; a_name[i]; i++)
+				add(std::string("letter_") + a_name[i] + "|" + tint, a_frameX + 32 - labelW / 2 + 12.0f * i, 72, 16, 16);
+			add("meter_left|" + tint, a_frameX, 88, 32, 48, 0.25f);
+			add("meter_right|" + tint, a_frameX + 32, 88, 32, 48, 0.25f);
+			if (a_wedges > 0) add("pie_" + std::to_string(std::clamp(a_wedges, 1, 8)) + "|" + tint, a_frameX + 16, 88, 32, 32);
+		};
+		colourMeter("STAMINA", kStamina, 0, a_s.stamina);
+		colourMeter("MAGICKA", kMagicka, 96, a_s.magicka);
 		return q;
 	}
+
+	// time the HUD takes per frame (telemetry: logged with the HUD line, once a second)
+	double s_drawMs = 0.0;
+	int    s_drawFrames = 0;
 
 	HRESULT STDMETHODCALLTYPE PresentHook(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 	{
@@ -262,7 +296,10 @@ namespace
 			if (s_gpuReady) {
 				DXGI_SWAP_CHAIN_DESC d{};
 				a_swap->GetDesc(&d);
+				const auto start = std::chrono::steady_clock::now();
 				Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Height)));
+				s_drawMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+				s_drawFrames++;
 			}
 		}
 		return s_present(a_swap, a_sync, a_flags);
@@ -287,6 +324,53 @@ namespace
 			if (quest && quest->IsCompleted()) n++;
 		return n;
 	}
+
+	// a value out of its maximum, as SM64's wedges (1-8, or none at 0)
+	int Wedges(float a_current, float a_max)
+	{
+		if (a_max <= 0.0f) return 0;
+		return std::clamp(static_cast<int>(std::ceil(8.0f * a_current / a_max)), 0, 8);
+	}
+
+	// Skyrim's own health, stamina and magicka bars are the HUD's Flash meters: hidden while Mario is out, since
+	// the power meters show the same things. Re-applied now and then (the HUD shows them again on changes).
+	void SetVanillaMetersVisible(bool a_visible)
+	{
+		auto ui = RE::UI::GetSingleton();
+		auto menu = ui ? ui->GetMenu<RE::HUDMenu>() : nullptr;
+		if (!menu) return;
+		// the three meters are movie clips of the HUD's base object, which also holds the compass and the shout
+		// meter: only these clips are hidden (instance names in the game's hudmenu.swf)
+		auto& rd = menu->GetRuntimeData();
+		if (!rd.health || !rd.health->root.IsDisplayObject()) return;
+		RE::GFxValue& base = rd.health->root;
+		for (const char* clip : { "Health", "Stamina", "Magica" }) {
+			RE::GFxValue meter;
+			if (!base.GetMember(clip, &meter) || !meter.IsDisplayObject()) {
+				if (Config::telemetry) logger::info("hud: no vanilla meter clip {}", clip);
+				continue;
+			}
+			RE::GFxValue::DisplayInfo info;
+			if (!meter.GetDisplayInfo(&info)) continue;
+			info.SetVisible(a_visible);
+			meter.SetDisplayInfo(info);
+		}
+	}
+
+	// tinted copy: the ROM's own shading, each pixel's brightness kept, its hue replaced
+	Image Tinted(const Image& a_src, const Tint& a_tint)
+	{
+		Image out = a_src;
+		out.srv = nullptr;
+		for (std::size_t i = 0; i + 3 < out.rgba.size(); i += 4) {
+			const float lum = (0.3f * out.rgba[i] + 0.59f * out.rgba[i + 1] + 0.11f * out.rgba[i + 2]) / 255.0f;
+			const float k = 0.25f + 0.75f * lum;
+			out.rgba[i] = static_cast<std::uint8_t>(a_tint.r * k);
+			out.rgba[i + 1] = static_cast<std::uint8_t>(a_tint.g * k);
+			out.rgba[i + 2] = static_cast<std::uint8_t>(a_tint.b * k);
+		}
+		return out;
+	}
 }
 
 bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
@@ -301,10 +385,24 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 	std::vector<std::string> names = { "times", "coin", "mario", "star", "meter_left", "meter_right" };
 	for (int i = 0; i <= 9; i++) names.push_back("digit_" + std::to_string(i));
 	for (int i = 1; i <= 8; i++) names.push_back("pie_" + std::to_string(i));
+	for (const char* l : { "A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "O", "P", "R", "S", "T", "U", "W", "Y" })
+		names.push_back(std::string("letter_") + l);
 	for (auto& n : names) {
 		const std::uint8_t* px = nullptr;
 		int                 w = 0, h = 0;
 		if (image(n.c_str(), &px, &w, &h)) s_images[n] = Image{ w, h, std::vector<std::uint8_t>(px, px + 4ull * w * h), nullptr };
+	}
+
+	// the meters' colour variants: the frame halves, the wedges and the lettering
+	std::vector<std::string> tintable = { "meter_left", "meter_right" };
+	for (int i = 1; i <= 8; i++) tintable.push_back("pie_" + std::to_string(i));
+	for (auto& n : names)
+		if (n.rfind("letter_", 0) == 0) tintable.push_back(n);
+	for (const Tint* t : { &kStamina, &kMagicka }) {
+		for (auto& n : tintable) {
+			auto it = s_images.find(n);
+			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
+		}
 	}
 	logger::info("hud: {} graphics from the ROM", s_images.size());
 	return !s_images.empty();
@@ -329,8 +427,10 @@ void Hud::InstallHook()
 
 void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, float a_delta)
 {
-	static float s_countTimer = 0.0f, s_starTimer = 0.0f, s_telTimer = 0.0f;
+	static float s_countTimer = 0.0f, s_starTimer = 0.0f, s_telTimer = 0.0f, s_vanillaTimer = 0.0f;
 	static int   s_coins = -1, s_stars = 0;
+	static bool  s_vanillaHidden = false;
+	static double s_vanillaMs = 0.0;
 
 	if (a_marioActive && (s_countTimer += a_delta) >= 0.25f) {
 		s_countTimer = 0.0f;
@@ -351,17 +451,46 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 		s_stars = CountStars();
 	}
 
+	// stamina and magicka, out of their maxima
+	int stamina = 0, magicka = 0;
+	if (a_marioActive) {
+		auto av = a_player->AsActorValueOwner();
+		stamina = Wedges(av->GetActorValue(RE::ActorValue::kStamina), av->GetPermanentActorValue(RE::ActorValue::kStamina));
+		magicka = Wedges(av->GetActorValue(RE::ActorValue::kMagicka), av->GetPermanentActorValue(RE::ActorValue::kMagicka));
+	}
+
+	// Skyrim's own bars: hidden while Mario is out (re-applied every fifth of a second)
+	if (a_marioActive) {
+		if ((s_vanillaTimer -= a_delta) <= 0.0f) {
+			s_vanillaTimer = 0.2f;
+			const auto start = std::chrono::steady_clock::now();
+			SetVanillaMetersVisible(false);
+			s_vanillaMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+		}
+		s_vanillaHidden = true;
+	} else if (s_vanillaHidden) {
+		SetVanillaMetersVisible(true);
+		s_vanillaHidden = false;
+	}
+
 	auto ui = RE::UI::GetSingleton();
 	const bool menus = ui && (ui->GameIsPaused() || ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME) || ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
 	{
 		std::scoped_lock l(s_lock);
 		s_state.show = a_marioActive && !menus && !s_images.empty();
 		s_state.wedges = a_wedges;
+		s_state.stamina = stamina;
+		s_state.magicka = magicka;
 		s_state.coins = std::max(0, s_coins);
 		s_state.stars = s_stars;
 	}
 	if (Config::telemetry && a_marioActive && (s_telTimer += a_delta) >= 1.0f) {
 		s_telTimer = 0.0f;
-		logger::info("HUD shown={} wedges={} coins={} stars={} gpu={}", s_state.show ? 1 : 0, a_wedges, s_state.coins, s_stars, s_gpuReady ? 1 : 0);
+		logger::info("HUD shown={} wedges={} stamina={} magicka={} coins={} stars={} gpu={} draw={:.3f}ms", s_state.show ? 1 : 0, a_wedges, stamina, magicka, s_state.coins, s_stars, s_gpuReady ? 1 : 0,
+			s_drawFrames ? s_drawMs / s_drawFrames : 0.0);
+		logger::info("HUD vanilla meters hide cost={:.3f}ms (per call, 5 a second)", s_vanillaMs / 5.0);
+		s_drawMs = 0.0;
+		s_drawFrames = 0;
+		s_vanillaMs = 0.0;
 	}
 }
