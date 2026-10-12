@@ -9,7 +9,9 @@ namespace Config
 	inline std::uint32_t attackPad = 0x0040;     // left stick click
 	inline float         scale = 0.48f;          // Skyrim units per SM64 unit: Mario ends up ~0.6x an NPC's height
 
-	inline float         damageMult = 1.0f;      // [Mario] fDamageMult: Mario's attacks on Skyrim actors
+	inline float         damageMult = 1.0f;
+	inline float         weaponScale = 0.8f;     // [Mario] fWeaponScale: Skyrim's weapons in Mario's hands
+	inline float         weaponRot[3] = { 0.0f, 0.0f, 0.0f };   // [Mario] fWeaponRotX/Y/Z, degrees, in the hand      // [Mario] fDamageMult: Mario's attacks on Skyrim actors
 	inline bool          telemetry = false;
 	inline int           renderTest = 0;         // [Debug] iRenderTest: 1 = draw a test cube instead of Mario      // [Debug] bTelemetry: state lines in TES64.log, for the UAT harness
 

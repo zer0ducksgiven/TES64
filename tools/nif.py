@@ -160,7 +160,7 @@ def p_lighting(r, b, s):
     b["spec_strength"] = r.f32()
     b["light1"], b["light2"] = r.f32(), r.f32()
     t = b["shadertype"]
-    if t == 1: r.f32(); r.f32()                         # env map scale
+    if t == 1: r.f32()                                  # env map scale
     elif t == 5: r.fs(3)                                # skin tint
     elif t == 6: r.fs(3)                                # hair tint
     elif t == 7: r.fs(2)                                # parallax

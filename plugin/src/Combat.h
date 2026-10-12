@@ -10,6 +10,7 @@ namespace Combat
 {
 	void Register();   // hit events
 	void Reset();      // Mario mode on: forget the last attack / pending knockbacks
+	void SuppressNextAttack();   // the next SM64 attack is Skyrim's swing/cast animating Mario: Skyrim deals that damage
 
 	// after each SM64 tick
 	void Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM64MarioState& a_state,

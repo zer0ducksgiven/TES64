@@ -60,6 +60,7 @@ namespace
 	std::vector<RE::ObjectRefHandle>       s_hitThisAttack;
 	std::int16_t                           s_lastWedges = 8;
 	bool                                   s_injected = false;   // our own knockback took wedges: not SM64 damage
+	bool                                   s_suppressNext = false, s_suppressCurrent = false;
 
 	struct PendingHit
 	{
@@ -75,7 +76,12 @@ namespace
 		RE::BSEventNotifyControl ProcessEvent(const RE::TESHitEvent* a_event, RE::BSTEventSource<RE::TESHitEvent>*) override
 		{
 			auto player = RE::PlayerCharacter::GetSingleton();
-			if (!a_event || !player || a_event->target.get() != player) return RE::BSEventNotifyControl::kContinue;
+			if (!a_event || !player) return RE::BSEventNotifyControl::kContinue;
+			if (Config::telemetry && a_event->cause.get() == player && a_event->target) {
+				// Skyrim's own hit (a weapon, spell or shout) landing for the player
+				logger::info("SKYHIT target={:08X} source={:08X}", a_event->target->GetFormID(), a_event->source);
+			}
+			if (a_event->target.get() != player) return RE::BSEventNotifyControl::kContinue;
 			auto cause = a_event->cause.get();
 			if (!cause || cause == player) return RE::BSEventNotifyControl::kContinue;
 			std::scoped_lock l(s_lock);
@@ -135,8 +141,11 @@ void Combat::Register()
 	}
 }
 
+void Combat::SuppressNextAttack() { s_suppressNext = true; }
+
 void Combat::Reset()
 {
+	s_suppressNext = s_suppressCurrent = false;
 	s_lastAction = 0;
 	s_lastAnim = -1;
 	s_hitThisAttack.clear();
@@ -188,10 +197,16 @@ void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM6
 		s_lastAnim = a_state.animID;
 		s_hitThisAttack.clear();
 		s_attackId++;
+		if (AttackFor(a_state.action)) {
+			s_suppressCurrent = s_suppressNext;
+			s_suppressNext = false;
+		} else {
+			s_suppressCurrent = false;
+		}
 	}
 	const float          heading = RE::NI_PI - a_state.faceAngle;
 	const RE::NiPoint3   fwd{ std::sin(heading), std::cos(heading), 0.0f };
-	const Attack*        attack = AttackFor(a_state.action);
+	const Attack*        attack = s_suppressCurrent ? nullptr : AttackFor(a_state.action);
 	const float          scale = Config::scale / 0.48f;   // hit sizes were tuned at the default Mario scale
 
 	// a stomp: falling onto someone's head

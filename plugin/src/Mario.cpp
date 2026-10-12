@@ -5,6 +5,8 @@
 #include "Render.h"
 #include "Camera.h"
 #include "Combat.h"
+#include "Arms.h"
+#include "DebugChannel.h"
 
 namespace
 {
@@ -63,6 +65,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		_seenUpdate = true;
 		logger::info("player update running");
 	}
+	DebugChannel::Poll();
 	if (_toggleRequested.exchange(false)) {
 		if (Active()) Disable();
 		else Enable(a_player);
@@ -111,6 +114,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		// the player's body comes back after loads and race/armour changes: keep it hidden
 		SetPlayerVisible(a_player, false);
 		Render::Update(_geo, pos, [this](const float* p) { return ToSkyrim(p); });
+		if (auto root = Render::Root()) Arms::Update(a_player, root->AsNode(), pos);
 	}
 
 	if (Config::telemetry && (_telemetryTimer += a_delta) >= 0.1f) {
@@ -187,19 +191,33 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 	Notify("It's-a me, Mario!");
 }
 
+namespace
+{
+	// the player's own body hidden, geometry by geometry: the skeleton keeps animating, and spell hand effects
+	// (under the magic nodes) and Mario (under the root) stay drawn
+	void CullBody(RE::NiAVObject* a_obj, bool a_cull)
+	{
+		if (!a_obj || a_obj == Render::Root()) return;
+		const std::string_view name = a_obj->name.c_str();
+		if (name.find("MagicNode") != std::string_view::npos) return;
+		if (a_obj->AsGeometry()) {
+			a_obj->SetAppCulled(a_cull);
+			return;
+		}
+		if (auto node = a_obj->AsNode()) {
+			for (auto& c : node->GetChildren()) CullBody(c.get(), a_cull);
+		}
+	}
+}
+
 void Mario::SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible)
 {
-	// the children, not the root: the root is a fade node the game un-culls every frame
-	auto root = a_player ? a_player->Get3D(false) : nullptr;
-	auto node = root ? root->AsNode() : nullptr;
-	if (!node) return;
-	for (auto& child : node->GetChildren()) {
-		if (child && child.get() != Render::Root()) child->SetAppCulled(!a_visible);
-	}
+	CullBody(a_player ? a_player->Get3D(false) : nullptr, !a_visible);
 }
 
 void Mario::Disable()
 {
+	Arms::Clear();
 	Render::Hide();
 	Camera::Restore();
 	SetPlayerVisible(RE::PlayerCharacter::GetSingleton(), true);
@@ -319,6 +337,16 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 		if (dx * dx + dz * dz > 1e-4f) { in.camLookX = dx; in.camLookZ = dz; }
 	}
 
+	// Skyrim swung/cast (left/right mouse): Mario turns to the crosshair and throws a punch for the animation; the
+	// hidden player's swing or spell does the damage
+	if (Arms::SkyrimActionStarted(a_player)) {
+		Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
+		if (!(_state.action & 0x00000800)) {   // grounded
+			Sm64::set_mario_action(_id, 0x00800380);   // ACT_PUNCHING
+			Combat::SuppressNextAttack();
+		}
+	}
 	Sm64::mario_tick(_id, &in, &_state, &_geo);
+	Arms::ReadHands([this](const float* p) { return ToSkyrim(p); }, RE::NI_PI - _state.faceAngle);
 	Combat::Tick(a_player, _id, _state, ToSkyrim(_state.position), [this](const RE::NiPoint3& p) { return ToSm64(p); });
 }
