@@ -132,6 +132,7 @@ namespace
 		const Image* image;
 		float        x, y, w, h;
 		float        u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;   // part of the texture (a cropped frame)
+		float        angle = 0.0f;                                  // radians, clockwise on screen, about the quad's centre
 	};
 
 	void Draw(IDXGISwapChain* a_swap, const std::vector<Quad>& a_quads)
@@ -200,10 +201,16 @@ namespace
 			auto v = static_cast<Vtx*>(m.pData);
 			for (int i = 0; i < n; i++) {
 				const auto& q = a_quads[i];
-				const float x0 = q.x / W * 2 - 1, x1 = (q.x + q.w) / W * 2 - 1;
-				const float y0 = 1 - q.y / H * 2, y1 = 1 - (q.y + q.h) / H * 2;
-				Vtx quad[6] = { { x0, y0, q.u0, q.v0 }, { x1, y0, q.u1, q.v0 }, { x0, y1, q.u0, q.v1 },
-					{ x1, y0, q.u1, q.v0 }, { x1, y1, q.u1, q.v1 }, { x0, y1, q.u0, q.v1 } };
+				// corners in pixels, turned about the centre, then to clip space
+				const float cx = q.x + q.w / 2, cy = q.y + q.h / 2, ca = std::cos(q.angle), sa = std::sin(q.angle);
+				auto corner = [&](float px, float py, float u, float v) {
+					const float dx = px - cx, dy = py - cy;
+					const float rx = cx + dx * ca - dy * sa, ry = cy + dx * sa + dy * ca;
+					return Vtx{ rx / W * 2 - 1, 1 - ry / H * 2, u, v };
+				};
+				const Vtx tl = corner(q.x, q.y, q.u0, q.v0), tr = corner(q.x + q.w, q.y, q.u1, q.v0),
+				          bl = corner(q.x, q.y + q.h, q.u0, q.v1), br = corner(q.x + q.w, q.y + q.h, q.u1, q.v1);
+				Vtx quad[6] = { tl, tr, bl, tr, br, bl };
 				std::memcpy(v + i * 6, quad, sizeof(quad));
 			}
 			c->Unmap(s_vb, 0);
@@ -262,6 +269,20 @@ namespace
 		counter("coin", a_s.coins, 8);
 		counter("star", a_s.stars, 30);
 
+		// a word in the HUD font along an arc, the letters fanned out like POWER's were (each turned a little more than
+		// the last, the middle ones raised), in a bar's colour; x is the word's centre, y the top of the letters
+		auto label = [&](const std::string& a_word, const char* a_key, float cx, float y, float a_size, float a_advance) {
+			const int   n = static_cast<int>(a_word.size());
+			for (int i = 0; i < n; i++) {
+				const float t = i - (n - 1) / 2.0f;
+				auto        im = Img("letter_" + std::string(1, a_word[i]) + "|" + a_key);
+				if (!im) continue;
+				Quad quad{ im, brX + (cx + t * a_advance - a_size / 2) * s, brY + (y - 0.7f * (a_size / 12.0f) * (3.0f - 0.6f * t * t)) * s, a_size * s, a_size * s };
+				quad.angle = t * 0.13f;
+				q.push_back(quad);
+			}
+		};
+
 		// bottom right: stamina and magicka in small copies of the POWER meter's Mario-head frame (to be given a background of
 		// their own), then the POWER meter at the corner
 		constexpr float kFrame = 38.0f, kPie = kFrame / 2.0f, kTop = 64.0f - kFrame;
@@ -272,9 +293,12 @@ namespace
 		};
 		miniMeter(0, a_s.stamina, kStamina.key);
 		miniMeter(kFrame, a_s.magicka, kMagicka.key);
+		label("STAMINA", kStamina.key, kFrame / 2, kTop + 4.0f, 7.5f, 5.3f);
+		label("MAGIKA", kMagicka.key, kFrame * 1.5f, kTop + 4.0f, 7.5f, 5.3f);
 		bottom("meter_left", 76, 0, 32, 64);
 		bottom("meter_right", 108, 0, 32, 64);
 		if (a_s.wedges > 0) bottom("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)) + "|health", 92, 16, 32, 32);
+		label("LIFE", "health", 108, 7.0f, 13.0f, 11.5f);
 		return q;
 	}
 
@@ -449,16 +473,48 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 	std::vector<std::string> names = { "times", "coin", "mario", "star", "meter_left", "meter_right" };
 	for (int i = 0; i <= 9; i++) names.push_back("digit_" + std::to_string(i));
 	for (int i = 1; i <= 8; i++) names.push_back("pie_" + std::to_string(i));
+	for (char c : std::string("AEFGIKLMNST")) names.push_back(std::string("letter_") + c);
 	for (auto& n : names) {
 		const std::uint8_t* px = nullptr;
 		int                 w = 0, h = 0;
 		if (image(n.c_str(), &px, &w, &h)) s_images[n] = Image{ w, h, std::vector<std::uint8_t>(px, px + 4ull * w * h), nullptr };
 	}
 
+	// the ROM's meter frame has "POWER" baked into its top: wiped (anything above the wood's tan and brown), so the
+	// labels can be written in their place
+	for (const char* n : { "meter_left", "meter_right" }) {
+		auto it = s_images.find(n);
+		if (it == s_images.end()) continue;
+		auto& im = it->second;
+		for (int y = 0; y < std::min(24, im.h); y++) {
+			for (int x = 0; x < im.w; x++) {
+				std::uint8_t* p = &im.rgba[(y * im.w + x) * 4];
+				if (!p[3]) continue;
+				const float r = p[0] / 255.0f, g = p[1] / 255.0f, b = p[2] / 255.0f;
+				const float mx = std::max({ r, g, b }), mn = std::min({ r, g, b }), d = mx - mn;
+				const float sat = mx > 0 ? d / mx : 0.0f;
+				float       hue = 0.0f;
+				if (d > 0) {
+					if (mx == r) hue = std::fmod((g - b) / d, 6.0f) / 6.0f;
+					else if (mx == g) hue = ((b - r) / d + 2.0f) / 6.0f;
+					else hue = ((r - g) / d + 4.0f) / 6.0f;
+					if (hue < 0) hue += 1.0f;
+				}
+				const bool wood = (hue >= 0.05f && hue <= 0.14f && sat >= 0.2f && sat <= 0.7f && mx > 0.55f) || (mx < 0.6f && hue >= 0.04f && hue <= 0.1f);
+				if (!wood) p[3] = 0;
+			}
+		}
+	}
+
 	// the wedges in each colour (health's POWER wedges are red too)
 	for (const Tint* t : { &kHealth, &kStamina, &kMagicka }) {
 		for (int i = 1; i <= 8; i++) {
 			const std::string n = "pie_" + std::to_string(i);
+			auto              it = s_images.find(n);
+			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
+		}
+		for (char c : std::string("AEFGIKLMNST")) {
+			const std::string n = std::string("letter_") + c;
 			auto              it = s_images.find(n);
 			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
 		}
