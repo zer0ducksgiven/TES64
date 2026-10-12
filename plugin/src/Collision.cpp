@@ -205,7 +205,6 @@ namespace
 		case COL_LAYER::kTerrain:
 		case COL_LAYER::kGround:
 		case COL_LAYER::kInvisibleWall:
-		case COL_LAYER::kTransparentSmall:
 			return true;
 		default:
 			return false;

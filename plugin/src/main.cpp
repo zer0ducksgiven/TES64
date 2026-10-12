@@ -1,3 +1,4 @@
+#include "Combat.h"
 #include "Config.h"
 #include "Input.h"
 #include "Mario.h"
@@ -36,6 +37,7 @@ namespace
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
 			if (Sm64::Init()) Render::WriteAtlas();
 			Input::Register();
+			Combat::Register();
 			if (Config::telemetry) {
 				static MenuLog menuLog;
 				RE::UI::GetSingleton()->AddEventSink<RE::MenuOpenCloseEvent>(&menuLog);

@@ -34,6 +34,11 @@ bool Sm64::Init()
 	          Resolve(dll, set_mario_faceangle, "sm64_set_mario_faceangle") &
 	          Resolve(dll, set_mario_health, "sm64_set_mario_health") &
 	          Resolve(dll, set_mario_water_level, "sm64_set_mario_water_level") &
+	          Resolve(dll, set_mario_velocity, "sm64_set_mario_velocity") &
+	          Resolve(dll, set_mario_action, "sm64_set_mario_action") &
+	          Resolve(dll, mario_take_damage, "sm64_mario_take_damage") &
+	          Resolve(dll, mario_kill, "sm64_mario_kill") &
+	          Resolve(dll, set_mario_invincibility, "sm64_set_mario_invincibility") &
 	          Resolve(dll, rom_normalize, "tes64_rom_normalize") &
 	          Resolve(dll, load_mario_model, "tes64_load_mario_model") &
 	          Resolve(dll, rom_error, "tes64_rom_error");

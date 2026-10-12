@@ -16,6 +16,11 @@ namespace Sm64
 	inline decltype(&sm64_set_mario_faceangle)  set_mario_faceangle;
 	inline decltype(&sm64_set_mario_health)     set_mario_health;
 	inline decltype(&sm64_set_mario_water_level) set_mario_water_level;
+	inline decltype(&sm64_set_mario_velocity)   set_mario_velocity;
+	inline decltype(&sm64_set_mario_action)     set_mario_action;
+	inline decltype(&sm64_mario_take_damage)    mario_take_damage;
+	inline decltype(&sm64_mario_kill)           mario_kill;
+	inline decltype(&sm64_set_mario_invincibility) set_mario_invincibility;
 
 	inline int (*rom_normalize)(std::uint8_t*, std::size_t);
 	inline int (*load_mario_model)(const std::uint8_t*, std::size_t);

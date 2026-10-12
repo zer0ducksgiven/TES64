@@ -28,6 +28,7 @@ private:
 	void StreamWorld(RE::PlayerCharacter* a_player, bool a_force);
 	void UpdateWater(RE::PlayerCharacter* a_player);
 	static void SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible);
+	bool Respawn(RE::PlayerCharacter* a_player);
 	void Tick(RE::PlayerCharacter* a_player);
 
 	std::atomic<bool>    _toggleRequested{ false };
@@ -40,6 +41,9 @@ private:
 	RE::NiPoint3         _streamCenter;
 	RE::bhkWorld*        _streamWorld = nullptr;
 	bool                 _streamed = false;
+	RE::NiPoint3         _lastSet;
+	bool                 _haveLastSet = false;
+	bool                 _respawnPending = false;
 	SM64MarioState       _state{};
 	SM64MarioGeometryBuffers _geo{};
 	std::vector<float>   _geoPos, _geoNormal, _geoColor, _geoUv;

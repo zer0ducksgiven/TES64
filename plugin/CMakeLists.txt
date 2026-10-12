@@ -23,6 +23,7 @@ add_commonlibsse_plugin(TES64
 		src/Collision.cpp
 		src/Render.cpp
 		src/Camera.cpp
+		src/Combat.cpp
 )
 target_include_directories(TES64 PRIVATE src ../native/sm64/dist)
 target_precompile_headers(TES64 PRIVATE src/PCH.h)

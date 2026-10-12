@@ -4,6 +4,7 @@
 #include "Collision.h"
 #include "Render.h"
 #include "Camera.h"
+#include "Combat.h"
 
 namespace
 {
@@ -47,6 +48,15 @@ RE::NiPoint3 Mario::ToSkyrim(const float a_pos[3]) const
 	return { _origin.x + a_pos[0] * s, _origin.y - a_pos[2] * s, _origin.z + a_pos[1] * s };
 }
 
+// the camera's heading (0 = north, clockwise), for telemetry: the harness steers relative to it
+static float CameraYaw()
+{
+	auto camera = RE::PlayerCamera::GetSingleton();
+	if (!camera || !camera->cameraRoot) return 0.0f;
+	const auto& r = camera->cameraRoot->world.rotate;
+	return std::atan2(r.entry[0][1], r.entry[1][1]);
+}
+
 void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 {
 	if (Config::telemetry && !_seenUpdate) {
@@ -62,6 +72,12 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	auto ui = RE::UI::GetSingleton();
 	if (ui && ui->GameIsPaused()) return;   // menus stop Mario with the game
 
+	// Skyrim moved the player (a door, fast travel, coc, a script): Mario follows instead of dragging them back
+	if (_haveLastSet && a_player->GetPosition().GetDistance(_lastSet) > 300.0f) _respawnPending = true;
+	if (_respawnPending) {
+		if (!Respawn(a_player)) return;   // the new cell's collision isn't loaded yet: try next frame
+	}
+
 	_accum += a_delta;
 	if (_accum > 0.25f) _accum = kTick;   // after a hitch, don't fast-forward
 	while (_accum >= kTick) {
@@ -71,7 +87,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		Tick(a_player);
 	}
 
-	// the player follows Mario: position, and heading (SM64 yaw 0 faces +Z, which is Skyrim's south).
+	// the player follows Mario's position.
 	// Skyrim's own physics stays out of it: no gravity pulling the player under Mario mid-jump, no fall damage
 	// on top of Mario's own
 	if (auto controller = a_player->GetCharController()) {
@@ -82,8 +98,12 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	}
 	auto pos = ToSkyrim(_state.position);
 	a_player->SetPosition(pos, true);
+	_lastSet = a_player->GetPosition();
+	_haveLastSet = true;
 	if (auto controller = a_player->GetCharController()) controller->fallStartHeight = pos.z;
-	a_player->SetAngle({ 0.0f, 0.0f, RE::NI_PI - _state.faceAngle });
+	// not the heading: Skyrim's third-person camera follows the player's heading, so turning the player with Mario
+	// spins the camera and Mario runs in circles. Mario's mesh shows his own facing; the player's heading (and so
+	// the camera and Skyrim's aiming) stays on the mouse.
 
 	if (Render::Visible()) {
 		// third person only: there's no first-person Mario
@@ -96,15 +116,39 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	if (Config::telemetry && (_telemetryTimer += a_delta) >= 0.1f) {
 		_telemetryTimer = 0.0f;
 		auto p = a_player->GetPosition();
-		logger::info("TEL mario=({:.1f},{:.1f},{:.1f}) vel=({:.2f},{:.2f},{:.2f}) action=0x{:08X} health=0x{:04X} tris={} player=({:.1f},{:.1f},{:.1f}) drawn={}",
+		logger::info("TEL mario=({:.1f},{:.1f},{:.1f}) vel=({:.2f},{:.2f},{:.2f}) action=0x{:08X} health=0x{:04X} tris={} player=({:.1f},{:.1f},{:.1f}) drawn={} hp={:.0f}/{:.0f} camyaw={:.3f}",
 			_state.position[0], _state.position[1], _state.position[2], _state.velocity[0], _state.velocity[1], _state.velocity[2],
-			_state.action, static_cast<std::uint16_t>(_state.health), _geo.numTrianglesUsed, p.x, p.y, p.z, Render::TrianglesDrawn());
+			_state.action, static_cast<std::uint16_t>(_state.health), _geo.numTrianglesUsed, p.x, p.y, p.z, Render::TrianglesDrawn(),
+			a_player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kHealth), a_player->AsActorValueOwner()->GetPermanentActorValue(RE::ActorValue::kHealth), CameraYaw());
 	}
 
 }
 
+bool Mario::Respawn(RE::PlayerCharacter* a_player)
+{
+	const auto pos = a_player->GetPosition();
+	_origin = pos;
+	_streamed = false;
+	StreamWorld(a_player, true);
+	if (!_streamed) return false;
+	Sm64::mario_delete(_id);
+	_id = Sm64::mario_create(0.0f, 20.0f / Config::scale, 0.0f);
+	if (_id < 0) return false;
+	Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
+	_state = {};
+	_state.position[1] = 20.0f / Config::scale;
+	_respawnPending = false;
+	_haveLastSet = false;
+	_accum = 0.0f;
+	Combat::Reset();
+	logger::info("Mario followed the player to ({:.0f}, {:.0f}, {:.0f})", pos.x, pos.y, pos.z);
+	return true;
+}
+
 void Mario::Enable(RE::PlayerCharacter* a_player)
 {
+	_respawnPending = false;
+	_haveLastSet = false;
 	if (!Sm64::Ready()) {
 		Notify("TES64: Super Mario 64 ROM not loaded (see TES64.log)");
 		return;
@@ -132,6 +176,7 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 	_geoUv.assign(2 * n, 0.0f);
 	_geo = { _geoPos.data(), _geoNormal.data(), _geoColor.data(), _geoUv.data(), 0 };
 	_accum = 0.0f;
+	Combat::Reset();
 
 	if (auto controls = RE::ControlMap::GetSingleton()) controls->ToggleControls(kTakenControls, false, false);
 	if (Render::Show()) {
@@ -252,7 +297,7 @@ void Mario::UpdateWater(RE::PlayerCharacter* a_player)
 	Sm64::set_mario_water_level(_id, static_cast<int>(level <= -1e6f ? -1000000 : sm[1]));
 }
 
-void Mario::Tick(RE::PlayerCharacter*)
+void Mario::Tick(RE::PlayerCharacter* a_player)
 {
 	auto input = Input::GetSingleton();
 	SM64MarioInputs in{};
@@ -275,4 +320,5 @@ void Mario::Tick(RE::PlayerCharacter*)
 	}
 
 	Sm64::mario_tick(_id, &in, &_state, &_geo);
+	Combat::Tick(a_player, _id, _state, ToSkyrim(_state.position), [this](const RE::NiPoint3& p) { return ToSm64(p); });
 }
