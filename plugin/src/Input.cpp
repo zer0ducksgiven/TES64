@@ -8,7 +8,22 @@ namespace
 	constexpr std::uint32_t kPadLeftStick = 0x0040, kPadLeftShoulder = 0x0100, kPadA = 0x1000, kPadY = 0x8000;
 	constexpr float         kTap = 0.3f;   // seconds: shorter on X is a dive, longer is Skyrim's draw / sheathe
 
-	bool s_aIgnored = false;   // this press of A was Skyrim's Activate (the crosshair was on something), not a jump
+	bool s_aIgnored = false;   // this press of A was Skyrim's Activate (the crosshair was on something usable), not a jump
+
+	// Would A activate something right now? Only what Skyrim itself would offer: within arm's reach (the crosshair picks far
+	// things too), not an enemy, and nothing at all in a fight with weapons out, so combat never eats a jump.
+	bool OffersInteraction()
+	{
+		auto player = RE::PlayerCharacter::GetSingleton();
+		auto pick = RE::CrosshairPickData::GetSingleton();
+		if (!player || !pick) return false;
+		auto target = pick->GetActiveTarget().get();
+		if (!target) return false;
+		if (player->GetPosition().GetDistance(target->GetPosition()) > 220.0f) return false;   // Skyrim's prompt range
+		if (player->IsInCombat() && player->AsActorState()->IsWeaponDrawn()) return false;
+		if (auto actor = target->As<RE::Actor>(); actor && !actor->IsDead() && actor->IsHostileToActor(player)) return false;   // a foe isn't a conversation
+		return true;
+	}
 
 	// Skyrim's Ready Weapon handler, for the pad's X while Mario is out: Skyrim would draw on the press, so the press is
 	// held back. Let go quickly: Mario dives. Held: the weapons are drawn or put away, once.
@@ -72,10 +87,7 @@ RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE:
 			switch (code) {
 			case kPadA:
 				// A is also Skyrim's Activate: looking at something usable, it's that, not a jump
-				if (button->IsDown()) {
-					auto pick = RE::CrosshairPickData::GetSingleton();
-					s_aIgnored = pick && pick->GetActiveTarget().get();
-				}
+				if (button->IsDown()) s_aIgnored = OffersInteraction();
 				a = pressed && !s_aIgnored;
 				if (!pressed) s_aIgnored = false;
 				break;
