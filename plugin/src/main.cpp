@@ -7,6 +7,8 @@
 #include "Mario.h"
 #include "Render.h"
 #include "Sm64.h"
+#include "Coins.h"
+#include "Objects.h"
 #include "Star.h"
 
 namespace
@@ -44,11 +46,13 @@ namespace
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
 			if (Sm64::Init()) {
 				Render::WriteAtlas();
+				Objects::Init();
 				Star::Init();
 			}
 			Hud::InstallHook();
 			Input::Register();
 			Combat::Register();
+			Coins::Register();
 			Caps::Register();
 			static MenuLog menuLog;
 			RE::UI::GetSingleton()->AddEventSink<RE::MenuOpenCloseEvent>(&menuLog);

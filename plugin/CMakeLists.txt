@@ -32,6 +32,8 @@ add_commonlibsse_plugin(TES64
 		src/Pose.cpp
 		src/Fonts.cpp
 		src/Star.cpp
+		src/Objects.cpp
+		src/Coins.cpp
 )
 target_include_directories(TES64 PRIVATE src ../native/sm64/dist)
 target_precompile_headers(TES64 PRIVATE src/PCH.h)

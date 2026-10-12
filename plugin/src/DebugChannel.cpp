@@ -52,6 +52,41 @@ void DebugChannel::Poll()
 			}
 		} else if (cmd == "doorbodies") {
 			Collision::LogDoorBodies(player, 6000.0f);
+		} else if (cmd == "gmst") {
+			// game settings whose name has arg in it (case-insensitive), with their values
+			if (auto gs = RE::GameSettingCollection::GetSingleton()) {
+				std::string want = arg;
+				std::transform(want.begin(), want.end(), want.begin(), ::tolower);
+				for (auto& item : gs->settings) {
+					auto setting = item.second;
+					if (!setting || !setting->GetName()) continue;
+					std::string n = setting->GetName();
+					std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+					if (n.find(want) == std::string::npos) continue;
+					const auto type = setting->GetType();
+					logger::info("GMST {} = {}", std::string(setting->GetName()), type == RE::Setting::Type::kFloat ? std::to_string(setting->GetFloat()) : type == RE::Setting::Type::kInteger ? std::to_string(setting->GetInteger()) : "?");
+				}
+			}
+		} else if (cmd == "killnearest") {
+			// the nearest living actor gets arg gold and dies (the coins test)
+			RE::Actor* best = nullptr;
+			float      bestD = 1e9f;
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				tes->ForEachReferenceInRange(player, 3000.0f, [&](RE::TESObjectREFR* ref) {
+					auto a = ref->As<RE::Actor>();
+					if (a && a != player && !a->IsDead()) {
+						const float d = a->GetPosition().GetDistance(player->GetPosition());
+						if (d < bestD) { bestD = d; best = a; }
+					}
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			}
+			auto gold = RE::TESForm::LookupByID<RE::TESBoundObject>(0xF);
+			if (best && gold) {
+				best->AddObjectToContainer(gold, nullptr, arg.empty() ? 30 : std::stoi(arg), nullptr);
+				best->KillImmediate();
+			}
+			logger::info("debug: killnearest -> {}", best ? fmt::format("{:08X} at {:.0f}", best->GetFormID(), bestD) : "nobody");
 		} else if (cmd == "flash") {
 			Hud::DumpFlash();
 		} else if (cmd == "star") {

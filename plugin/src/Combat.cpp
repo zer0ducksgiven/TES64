@@ -148,6 +148,55 @@ namespace
 	}
 }
 
+namespace
+{
+	// every rigid body under a 3D tree (a body's ragdoll bones, a pile of clutter)
+	void ForEachBody(RE::NiAVObject* a_obj, const std::function<void(RE::bhkRigidBody*)>& a_fn, int a_depth = 0)
+	{
+		if (!a_obj || a_depth > 12) return;
+		if (auto co = a_obj->GetCollisionObject())
+			if (auto body = skyrim_cast<RE::bhkRigidBody*>(co->body.get())) a_fn(body);
+		if (auto node = a_obj->AsNode())
+			for (auto& c : node->GetChildren()) ForEachBody(c.get(), a_fn, a_depth + 1);
+	}
+
+	// a ground pound's landing: a ring of force round Mario. The living are thrown (ragdolled) away from him, harder
+	// the closer they were; the dead and loose clutter fly off; nothing is hurt by it (the pound's own hit does that)
+	void Shockwave(RE::PlayerCharacter* a_player, const RE::NiPoint3& a_at, float a_scale)
+	{
+		const float radius = 380.0f * a_scale;
+		auto        tes = RE::TES::GetSingleton();
+		auto        proc = a_player->GetActorRuntimeData().currentProcess;
+		if (!tes) return;
+		int thrown = 0;
+		tes->ForEachReferenceInRange(a_player, radius, [&](RE::TESObjectREFR* a_ref) {
+			if (!a_ref || a_ref == a_player || a_ref->IsDisabled()) return RE::BSContainer::ForEachResult::kContinue;
+			const auto   pos = a_ref->GetPosition();
+			RE::NiPoint3 d{ pos.x - a_at.x, pos.y - a_at.y, 0.0f };
+			const float  dist = std::max(1.0f, d.Length());
+			if (dist > radius || std::abs(pos.z - a_at.z) > 150.0f) return RE::BSContainer::ForEachResult::kContinue;
+			d /= dist;
+			const float strength = 1.0f - dist / radius;
+			auto        actor = a_ref->As<RE::Actor>();
+			if (actor && !actor->IsDead()) {
+				if (proc) proc->KnockExplosion(actor, a_at - d * 30.0f, 2.0f + 6.0f * strength);
+				thrown++;
+			} else {
+				// a body's ragdoll or a heap of clutter: every piece sent off, up and out
+				const float speed = 250.0f + 650.0f * strength, s = RE::bhkWorld::GetWorldScale();
+				ForEachBody(a_ref->Get3D(), [&](RE::bhkRigidBody* a_body) {
+					auto hk = static_cast<RE::hkpRigidBody*>(a_body->referencedObject.get());
+					if (!hk || hk->motion.type.get() == RE::hkpMotion::MotionType::kFixed || hk->motion.type.get() == RE::hkpMotion::MotionType::kKeyframed) return;
+					a_body->SetLinearVelocity(RE::hkVector4(d.x * speed * s, d.y * speed * s, 0.7f * speed * s, 0.0f));
+				});
+				if (actor) thrown++;
+			}
+			return RE::BSContainer::ForEachResult::kContinue;
+		});
+		if (Config::telemetry) logger::info("SHOCKWAVE radius={:.0f} threw {}", radius, thrown);
+	}
+}
+
 void Combat::Register()
 {
 	static HitSink sink;
@@ -209,6 +258,7 @@ void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM6
 
 	// ---- Mario hits Skyrim -------------------------------------------------------------------------------------
 	if (a_state.action != s_lastAction || a_state.animID != s_lastAnim) {
+		if (a_state.action == ACT_GROUND_POUND_LAND && s_lastAction != ACT_GROUND_POUND_LAND) Shockwave(a_player, a_marioPos, Config::scale / 0.48f);
 		s_lastAction = a_state.action;
 		s_lastAnim = a_state.animID;
 		s_hitThisAttack.clear();

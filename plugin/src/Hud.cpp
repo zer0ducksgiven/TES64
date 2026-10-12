@@ -557,10 +557,10 @@ namespace
 		for (const char* clip : { "Health", "Stamina", "Magica" }) SetClipVisible(clip, a_meters);
 		static bool s_logged = false;
 		const bool  cross = SetClipVisible("CrosshairInstance", a_crosshair) | SetClipVisible("Crosshair", a_crosshair);
-		// the compass's frame, its letters and needle go; its markers (CompassRect, a clip of its own) stay, over Mario's
-		bool comp = SetClipVisible("CompassShoutMeterHolder.Compass.CompassFrame", a_compass);
-		for (const char* c : { "CompassShoutMeterHolder.Compass.CompassMask_mc" })
-			SetClipVisible(c, a_compass);
+		// the compass's frame goes; its strip of markers (and faint letters, under Mario's) stays, drawn over Mario's
+		// compass and still clipped to its window by its own mask
+		const bool comp = SetClipVisible("CompassShoutMeterHolder.Compass.CompassFrame", a_compass);
+		SetClipVisible("CompassShoutMeterHolder.Compass.CompassMask_mc", true);
 		if (Config::telemetry && !s_logged) {
 			logger::info("hud: crosshair clip {}, compass clip {}", cross ? "found" : "missing", comp ? "found" : "missing");
 			s_logged = true;

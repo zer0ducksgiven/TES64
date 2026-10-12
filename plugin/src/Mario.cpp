@@ -7,6 +7,8 @@
 #include "Combat.h"
 #include "Arms.h"
 #include "Pose.h"
+#include "Coins.h"
+#include "Objects.h"
 #include "Star.h"
 #include "DebugChannel.h"
 #include "Hud.h"
@@ -162,7 +164,14 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 			Render::Update(_geo, _prevGeoPos.data(), _prevTris, _state.position, _prevSm64, alpha, pos, Config::scale, _state.flags);
 			if (auto root = Render::Root()) {
 				Arms::Update(a_player, root->AsNode(), pos, alpha);
-				Star::Draw(root->AsNode(), pos, smPos, alpha, Config::scale);
+				// SM64's objects round Mario: the Power Star, coins
+				Objects::Begin();
+				Star::Put(alpha);
+				if (auto camera = RE::PlayerCamera::GetSingleton(); camera && camera->cameraRoot) {
+					const auto cam = ToSm64(camera->cameraRoot->world.translate);
+					Coins::Put(cam.data());
+				}
+				Objects::End(root->AsNode(), smPos, Config::scale);
 			}
 		}
 	}
@@ -258,6 +267,15 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 		SetPlayerVisible(a_player, false);
 		Camera::Apply(160.0f * Config::scale);   // Mario is ~160 SM64 units tall
 	}
+	// the hidden character's voice: TES64.esp's voice type with no lines, so its attack grunts and shouts of effort
+	// don't come out of Mario
+	if (auto base = a_player->GetActorBase(); base && !_savedVoice) {
+		auto data = RE::TESDataHandler::GetSingleton();
+		if (auto silent = data ? data->LookupForm<RE::BGSVoiceType>(0x801, "TES64.esp") : nullptr) {
+			_savedVoice = base->voiceType ? base->voiceType : reinterpret_cast<RE::BGSVoiceType*>(-1);
+			base->voiceType = silent;
+		}
+	}
 	logger::info("Mario mode on at ({}, {}, {})", _origin.x, _origin.y, _origin.z);
 	Notify("It's-a me, Mario!");
 }
@@ -288,8 +306,15 @@ void Mario::SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible)
 
 void Mario::Disable()
 {
+	if (_savedVoice) {
+		if (auto player = RE::PlayerCharacter::GetSingleton(); player && player->GetActorBase())
+			player->GetActorBase()->voiceType = _savedVoice == reinterpret_cast<RE::BGSVoiceType*>(-1) ? nullptr : _savedVoice;
+		_savedVoice = nullptr;
+	}
 	Arms::Clear();
 	Star::Reset();
+	Coins::Reset();
+	Objects::Hide();
 	Pose::Reset();
 	Render::Hide();
 	Camera::Restore();
@@ -442,4 +467,5 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 	Arms::ReadHands([this](const float* p) { return ToSkyrim(p); }, RE::NI_PI - _state.faceAngle);
 	Combat::Tick(a_player, _id, _state, ToSkyrim(_state.position), [this](const RE::NiPoint3& p) { return ToSm64(p); });
 	Star::Tick(a_player, _id, _state);
+	Coins::Tick(a_player, _state, [this](const RE::NiPoint3& p) { return ToSm64(p); });
 }

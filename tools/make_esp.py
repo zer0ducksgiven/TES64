@@ -6,6 +6,7 @@ import struct
 import sys
 
 QUEST_ID = 0x01000800      # light plugin: own forms 0x800+, file index 01 (one master)
+VOICE_ID = 0x01000801      # a voice type with no lines: the hidden player's while Mario is out (no attack grunts)
 
 
 def sub(tag, data):
@@ -61,11 +62,13 @@ def build():
     q += sub("ALED", b"")
     quest = record("QUST", QUEST_ID, q)
 
-    hdr = sub("HEDR", struct.pack("<fII", 1.71, 1, 0x801))
+    voice = record("VTYP", VOICE_ID, sub("EDID", zstr("TES64_SilentVoice")) + sub("DNAM", struct.pack("<B", 0)))
+
+    hdr = sub("HEDR", struct.pack("<fII", 1.71, 2, 0x802))
     hdr += sub("CNAM", zstr("TES64"))
     hdr += sub("MAST", zstr("Skyrim.esm")) + sub("DATA", struct.pack("<Q", 0))
     tes4 = record("TES4", 0, hdr, flags=0x200)        # ESL
-    return tes4 + group("QUST", [quest])
+    return tes4 + group("VTYP", [voice]) + group("QUST", [quest])
 
 
 def check(data):

@@ -110,17 +110,17 @@ def build():
     return nif.write(blocks, strings)
 
 
-STAR_TRIS = 64
+OBJECT_TRIS = 512
 
 
-def build_star():
-    """The Power Star's template: STAR_TRIS placeholder triangles the plugin fills from the ROM's star model
-    (Star.cpp), textured with the objects atlas it writes at runtime, glowing a little."""
-    strings = ["TES64Star", "StarBody", "StarShader", "StarAlpha"]
+def build_objects():
+    """SM64's objects' template (the Power Star, coins): OBJECT_TRIS placeholder triangles the plugin fills from the ROM's
+    models (Objects.cpp), textured with the objects atlas it writes at runtime, glowing a little."""
+    strings = ["TES64Objects", "Objects", "ObjectsShader", "ObjectsAlpha"]
     f1 = SLSF1_RECEIVE_SHADOWS | SLSF1_CAST_SHADOWS | SLSF1_OWN_EMIT | SLSF1_ZTEST
     blocks = [
         ("NiNode", node(0, [1])),
-        ("BSTriShape", trishape(1, 2, 4, STAR_TRIS, (0, 0, 0, 600))),
+        ("BSTriShape", trishape(1, 2, 4, OBJECT_TRIS, (0, 0, 0, 2000))),
         ("BSLightingShaderProperty", lighting(2, 3, f1, SLSF2_ZWRITE | SLSF2_VERTEX_COLORS | SLSF2_ENVLIGHTFADE, (0.35, 0.3, 0.08))),
         ("BSShaderTextureSet", texset("textures\\TES64\\objects.dds", "textures\\TES64\\flat_n.dds")),
         ("NiAlphaProperty", alpha_test(3)),
@@ -142,9 +142,9 @@ if __name__ == "__main__":
     check = nif.read(data)
     assert all(b.get("checked") for b in check["blocks"]), "generated NIF didn't read back"
     open(os.path.join(out, "meshes", "TES64", "mario.nif"), "wb").write(data)
-    star = build_star()
-    assert all(b.get("checked") for b in nif.read(star)["blocks"]), "generated star NIF didn't read back"
-    open(os.path.join(out, "meshes", "TES64", "star.nif"), "wb").write(star)
+    objects = build_objects()
+    assert all(b.get("checked") for b in nif.read(objects)["blocks"]), "generated objects NIF didn't read back"
+    open(os.path.join(out, "meshes", "TES64", "objects.nif"), "wb").write(objects)
     open(os.path.join(out, "textures", "TES64", "white.dds"), "wb").write(dds(4, 4, b"\xff\xff\xff\xff" * 16))
     open(os.path.join(out, "textures", "TES64", "flat_n.dds"), "wb").write(dds(4, 4, b"\xff\x80\x80\xff" * 16))
     print(f"mario.nif {len(data)} bytes, desc {DESC:016X}, stride {STRIDE}")
