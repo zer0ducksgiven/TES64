@@ -14,6 +14,7 @@ public:
 	std::atomic<bool> a{ false };   // Skyrim's Jump
 	std::atomic<bool> b{ false };   // Config::attackKey / attackPad
 	std::atomic<bool> z{ false };   // Skyrim's Sneak
+	std::atomic<bool> dive{ false };   // the pad's X, tapped: one dive (Mario consumes it)
 
 	RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*) override;
 };

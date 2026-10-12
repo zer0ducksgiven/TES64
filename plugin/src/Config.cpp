@@ -20,6 +20,11 @@ namespace
 		sounds = ini.GetBoolValue("Mario", "bSounds", sounds);
 		volume = std::clamp(static_cast<int>(ini.GetLongValue("Mario", "iVolume", volume)), 0, 100);
 		reactions = ini.GetBoolValue("Mario", "bNPCReactions", reactions);
+		bodyPose = ini.GetBoolValue("Mario", "bBodyPose", bodyPose);
+		hudScale = std::clamp(static_cast<float>(ini.GetDoubleValue("HUD", "fScale", hudScale)), 0.5f, 2.0f);
+		hideCrosshairSheathed = ini.GetBoolValue("HUD", "bHideCrosshair", hideCrosshairSheathed);
+		compass = ini.GetBoolValue("HUD", "bCompass", compass);
+		sm64Fonts = ini.GetBoolValue("HUD", "bSM64Fonts", sm64Fonts);
 		smoothMotion = ini.GetBoolValue("Mario", "bSmoothMotion", smoothMotion);
 		if (scale <= 0.01f) scale = 0.48f;
 	}

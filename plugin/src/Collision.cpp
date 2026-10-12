@@ -235,11 +235,12 @@ namespace
 	{
 		auto tes = RE::TES::GetSingleton();
 		if (!tes) return;
+		std::unordered_set<const RE::hkpRigidBody*> seen;   // a door's body hangs off more than one node
 		tes->ForEachReferenceInRange(a_player, a_radius, [&](RE::TESObjectREFR* ref) {
 			auto base = ref->GetBaseObject();
 			if (!base || !base->Is(RE::FormType::Door)) return RE::BSContainer::ForEachResult::kContinue;
 			VisitCollisionObjects(ref->Get3D(), [&](RE::NiAVObject*, RE::NiCollisionObject* col) {
-				if (auto body = BodyOf(col)) a_fn(body);
+				if (auto body = BodyOf(col); body && seen.insert(body).second) a_fn(body);
 			});
 			return RE::BSContainer::ForEachResult::kContinue;
 		});
@@ -312,10 +313,34 @@ namespace Collision
 		// doors are keyframed bodies, which the fixed island doesn't list: found through the door references, so a
 		// closed door blocks Mario and an open one lets him through
 		if (auto player = RE::PlayerCharacter::GetSingleton()) {
+			// as a box, fattened to 60 units: SM64's walls only push Mario out of their front, so a thin slab lets him through
+			// once he is within his radius of both faces (the back face pushes him on). Half 30 > his 24-unit radius.
+			const float minHalf = 30.0f * toHavok;
 			ForEachDoorBody(player, a_radius + 500.0f, [&](const hkpRigidBody* body) {
-				const auto before = stats.bodies;
-				consider(body);
-				stats.doors += stats.bodies - before;
+				auto shape = body->collidable.shape;
+				if (!ValidShape(shape) || !Wanted(body->collidable.GetCollisionLayer())) return;
+				hkTransform id;
+				id.rotation.col0 = hkVector4(1.0f, 0.0f, 0.0f, 0.0f);
+				id.rotation.col1 = hkVector4(0.0f, 1.0f, 0.0f, 0.0f);
+				id.rotation.col2 = hkVector4(0.0f, 0.0f, 1.0f, 0.0f);
+				id.translation = hkVector4(0.0f, 0.0f, 0.0f, 0.0f);
+				RE::hkAabb local;
+				shape->GetAabbImpl(id, 0.0f, local);
+				const V3 lmn = Load(local.min), lmx = Load(local.max);
+				V3       half{ (lmx.x - lmn.x) / 2, (lmx.y - lmn.y) / 2, (lmx.z - lmn.z) / 2 };
+				const V3 centre{ (lmx.x + lmn.x) / 2, (lmx.y + lmn.y) / 2, (lmx.z + lmn.z) / 2 };
+				float*   thin = half.x <= half.y && half.x <= half.z ? &half.x : half.y <= half.z ? &half.y : &half.z;
+				*thin = std::max(*thin, minHalf);
+				Xf x = Xf::From(body->motion.motionState.transform);
+				x.t = x.Apply(centre);
+				const auto before = a_out.size();
+				w.out = &a_out;
+				w.lo = qlo;
+				w.hi = qhi;
+				w.Box(x, half);
+				w.lo = { -1e30f, -1e30f, -1e30f };
+				w.hi = { 1e30f, 1e30f, 1e30f };
+				if (a_out.size() > before) stats.doors++;
 			});
 		}
 		stats.tris = a_out.size();

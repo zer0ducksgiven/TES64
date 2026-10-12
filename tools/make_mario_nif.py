@@ -23,34 +23,35 @@ SLSF1_DECAL, SLSF1_DYNAMIC_DECAL, SLSF1_ZTEST = 1 << 26, 1 << 27, 1 << 31
 SLSF2_ZWRITE, SLSF2_VERTEX_COLORS, SLSF2_ENVLIGHTFADE = 1 << 0, 1 << 5, 1 << 15
 
 
-def trishape(name_idx, shader_idx, alpha_idx):
+def trishape(name_idx, shader_idx, alpha_idx, max_tris=MAX_TRIS, bound=(0, 0, 40, 220)):
+    nv = max_tris * 3
     w = nif.W()
     nif.avobject(w, name_idx)
-    w.fs([0, 0, 40, 220])                  # bound: Mario is ~80 units tall at 0.48
+    w.fs(list(bound))                      # Mario: ~80 units tall at 0.48
     w.i32(-1); w.i32(shader_idx); w.i32(alpha_idx)
     w.u64(DESC)
-    w.u16(MAX_TRIS); w.u16(NV)
-    w.u32(STRIDE * NV + 6 * MAX_TRIS)
+    w.u16(max_tris); w.u16(nv)
+    w.u32(STRIDE * nv + 6 * max_tris)
     vert = bytearray(STRIDE)
     struct.pack_into("<4f", vert, 0, 0, 0, 0, 0)
     struct.pack_into("<4B", vert, 20, 128, 128, 255, 128)   # normal +Z
     struct.pack_into("<4B", vert, 24, 255, 128, 128, 128)   # tangent +X
     struct.pack_into("<4B", vert, 28, 255, 255, 255, 255)   # white
-    w.raw(bytes(vert) * NV)
-    for t in range(MAX_TRIS):
+    w.raw(bytes(vert) * nv)
+    for t in range(max_tris):
         w.u16(3 * t); w.u16(3 * t + 1); w.u16(3 * t + 2)
     w.u32(0)                               # particle data
     return w.data()
 
 
-def lighting(name_idx, texset_idx, f1, f2):
+def lighting(name_idx, texset_idx, f1, f2, emissive=(0, 0, 0)):
     w = nif.W()
     w.u32(0)                               # default shader
     w.i32(name_idx); w.u32(0); w.i32(-1)
     w.u32(f1); w.u32(f2)
     w.fs([0, 0]); w.fs([1, 1])
     w.i32(texset_idx)
-    w.fs([0, 0, 0]); w.f32(1.0)            # emissive
+    w.fs(list(emissive)); w.f32(1.0)       # emissive
     w.u32(3)                               # wrap s/t
     w.f32(1.0); w.f32(0.0); w.f32(80.0)    # alpha, refraction, glossiness
     w.fs([1, 1, 1]); w.f32(0.0)            # specular off
@@ -71,6 +72,14 @@ def alpha_blend(name_idx):
     w.i32(name_idx); w.u32(0); w.i32(-1)
     w.u16(0x00ED)                          # blend: src alpha / inv src alpha
     w.u8(0)
+    return w.data()
+
+
+def alpha_test(name_idx):
+    w = nif.W()
+    w.i32(name_idx); w.u32(0); w.i32(-1)
+    w.u16(0x1200)                          # test: alpha greater than the threshold, no blending
+    w.u8(128)
     return w.data()
 
 
@@ -101,6 +110,24 @@ def build():
     return nif.write(blocks, strings)
 
 
+STAR_TRIS = 64
+
+
+def build_star():
+    """The Power Star's template: STAR_TRIS placeholder triangles the plugin fills from the ROM's star model
+    (Star.cpp), textured with the objects atlas it writes at runtime, glowing a little."""
+    strings = ["TES64Star", "StarBody", "StarShader", "StarAlpha"]
+    f1 = SLSF1_RECEIVE_SHADOWS | SLSF1_CAST_SHADOWS | SLSF1_OWN_EMIT | SLSF1_ZTEST
+    blocks = [
+        ("NiNode", node(0, [1])),
+        ("BSTriShape", trishape(1, 2, 4, STAR_TRIS, (0, 0, 0, 600))),
+        ("BSLightingShaderProperty", lighting(2, 3, f1, SLSF2_ZWRITE | SLSF2_VERTEX_COLORS | SLSF2_ENVLIGHTFADE, (0.35, 0.3, 0.08))),
+        ("BSShaderTextureSet", texset("textures\\TES64\\objects.dds", "textures\\TES64\\flat_n.dds")),
+        ("NiAlphaProperty", alpha_test(3)),
+    ]
+    return nif.write(blocks, strings)
+
+
 def dds(w, h, bgra):
     hdr = struct.pack("<4sIIIIIII44sIIIIIIIIIIIII", b"DDS ", 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x8, h, w, w * 4, 0, 1,
                       b"\0" * 44, 32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 0x1000, 0, 0, 0, 0)
@@ -115,6 +142,9 @@ if __name__ == "__main__":
     check = nif.read(data)
     assert all(b.get("checked") for b in check["blocks"]), "generated NIF didn't read back"
     open(os.path.join(out, "meshes", "TES64", "mario.nif"), "wb").write(data)
+    star = build_star()
+    assert all(b.get("checked") for b in nif.read(star)["blocks"]), "generated star NIF didn't read back"
+    open(os.path.join(out, "meshes", "TES64", "star.nif"), "wb").write(star)
     open(os.path.join(out, "textures", "TES64", "white.dds"), "wb").write(dds(4, 4, b"\xff\xff\xff\xff" * 16))
     open(os.path.join(out, "textures", "TES64", "flat_n.dds"), "wb").write(dds(4, 4, b"\xff\x80\x80\xff" * 16))
     print(f"mario.nif {len(data)} bytes, desc {DESC:016X}, stride {STRIDE}")

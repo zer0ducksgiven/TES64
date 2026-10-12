@@ -74,32 +74,38 @@ namespace
 	}
 }
 
-bool Render::WriteAtlas()
+bool Render::WriteDds(const char* a_name, const std::uint8_t* a_rgba, std::uint32_t a_w, std::uint32_t a_h)
 {
-	constexpr std::uint32_t w = SM64_TEXTURE_WIDTH, h = SM64_TEXTURE_HEIGHT;
-	if (Sm64::texture.size() != 4ull * w * h) return false;
 	std::filesystem::create_directories("Data/Textures/TES64");
-	std::ofstream f("Data/Textures/TES64/mario.dds", std::ios::binary);
+	const auto    path = std::filesystem::path("Data/Textures/TES64") / a_name;
+	std::ofstream f(path, std::ios::binary);
 	if (!f) {
-		logger::error("render: can't write Data/Textures/TES64/mario.dds");
+		logger::error("render: can't write {}", path.string());
 		return false;
 	}
-	std::uint32_t hdr[32] = { 0x20534444, 124, 0x1 | 0x2 | 0x4 | 0x8 | 0x1000, h, w, w * 4, 0, 1 };
+	std::uint32_t hdr[32] = { 0x20534444, 124, 0x1 | 0x2 | 0x4 | 0x8 | 0x1000, a_h, a_w, a_w * 4, 0, 1 };
 	hdr[19] = 32;           // pixel format size
 	hdr[20] = 0x41;         // RGB | alpha
 	hdr[22] = 32;
 	hdr[23] = 0x00FF0000; hdr[24] = 0x0000FF00; hdr[25] = 0x000000FF; hdr[26] = 0xFF000000;
 	hdr[27] = 0x1000;       // texture
 	f.write(reinterpret_cast<const char*>(hdr), sizeof(hdr));
-	std::vector<std::uint8_t> bgra(Sm64::texture.size());
+	std::vector<std::uint8_t> bgra(4ull * a_w * a_h);
 	for (std::size_t i = 0; i < bgra.size(); i += 4) {
-		bgra[i] = Sm64::texture[i + 2];
-		bgra[i + 1] = Sm64::texture[i + 1];
-		bgra[i + 2] = Sm64::texture[i];
-		bgra[i + 3] = Sm64::texture[i + 3];
+		bgra[i] = a_rgba[i + 2];
+		bgra[i + 1] = a_rgba[i + 1];
+		bgra[i + 2] = a_rgba[i];
+		bgra[i + 3] = a_rgba[i + 3];
 	}
 	f.write(reinterpret_cast<const char*>(bgra.data()), static_cast<std::streamsize>(bgra.size()));
 	return true;
+}
+
+bool Render::WriteAtlas()
+{
+	constexpr std::uint32_t w = SM64_TEXTURE_WIDTH, h = SM64_TEXTURE_HEIGHT;
+	if (Sm64::texture.size() != 4ull * w * h) return false;
+	return WriteDds("mario.dds", Sm64::texture.data(), w, h);
 }
 
 bool Render::Show()
@@ -153,6 +159,7 @@ void Render::Update(const SM64MarioGeometryBuffers& a_geo, const float* a_prevPo
 
 	const std::uint32_t n = std::min<std::uint32_t>(a_geo.numTrianglesUsed, kMaxTris);
 	std::uint32_t       decals = 0;
+	const float         yawC = std::cos(Pose::Yaw()), yawS = std::sin(Pose::Yaw());
 	for (std::uint32_t t = 0; t < kMaxTris; t++) {
 		const bool used = t < n;
 		// libsm64 marks untextured triangles with uv (1,1)
@@ -175,8 +182,18 @@ void Render::Update(const SM64MarioGeometryBuffers& a_geo, const float* a_prevPo
 				const float cur = a_geo.position[i * 3 + axis] - a_sm64Pos[axis];
 				rel[axis] = t < a_prevTris ? std::lerp(a_prevPos[i * 3 + axis] - a_sm64Prev[axis], cur, a_alpha) : cur;
 			}
+			const float* nr0 = posed ? posedNormal : &a_geo.normal[i * 3];
+			// the body turned toward the crosshair while Skyrim's attack shows (about SM64's up axis)
+			float nr[3] = { nr0[0], nr0[1], nr0[2] };
+			if (yawC != 1.0f) {
+				const float x = rel[0], z = rel[2];
+				rel[0] = x * yawC + z * yawS;
+				rel[2] = -x * yawS + z * yawC;
+				const float nx0 = nr[0], nz0 = nr[2];
+				nr[0] = nx0 * yawC + nz0 * yawS;
+				nr[2] = -nx0 * yawS + nz0 * yawC;
+			}
 			const RE::NiPoint3 p{ rel[0] * a_scale, -rel[2] * a_scale, rel[1] * a_scale };
-			const float* nr = posed ? posedNormal : &a_geo.normal[i * 3];
 			const float  nx = nr[0], ny = -nr[2], nz = nr[1];   // SM64 (y up) -> Skyrim (z up)
 			const float* c = &a_geo.color[i * 3];
 

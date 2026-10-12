@@ -9,6 +9,8 @@ namespace Render
 {
 	// writes Data/Textures/TES64/mario.dds from the ROM's texture atlas (before the mesh loads)
 	bool WriteAtlas();
+	// an RGBA image as an uncompressed DDS (BGRA) under Data/Textures/TES64
+	bool WriteDds(const char* a_name, const std::uint8_t* a_rgba, std::uint32_t a_w, std::uint32_t a_h);
 
 	bool Show();   // load (once) and put Mario in the world
 	void Hide();

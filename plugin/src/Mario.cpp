@@ -7,6 +7,7 @@
 #include "Combat.h"
 #include "Arms.h"
 #include "Pose.h"
+#include "Star.h"
 #include "DebugChannel.h"
 #include "Hud.h"
 #include "Caps.h"
@@ -134,7 +135,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	float       smPos[3];
 	for (int axis = 0; axis < 3; axis++) smPos[axis] = _prevSm64[axis] + (_state.position[axis] - _prevSm64[axis]) * alpha;
 	auto pos = ToSkyrim(smPos);
-	Pose::Compute(a_player, alpha);   // Skyrim's arm animation, applied to Mario's arms for this frame
+	Pose::Compute(a_player, alpha, _state.faceAngle);   // Skyrim's upper-body animation on Mario for this frame
 	a_player->SetPosition(pos, true);
 	_lastSet = a_player->GetPosition();
 	_haveLastSet = true;
@@ -151,7 +152,10 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		// smooth: every frame; stepping (the old way): only when SM64 has a new tick
 		if (Config::smoothMotion || ticked) {
 			Render::Update(_geo, _prevGeoPos.data(), _prevTris, _state.position, _prevSm64, alpha, pos, Config::scale, _state.flags);
-			if (auto root = Render::Root()) Arms::Update(a_player, root->AsNode(), pos, alpha);
+			if (auto root = Render::Root()) {
+				Arms::Update(a_player, root->AsNode(), pos, alpha);
+				Star::Draw(root->AsNode(), pos, smPos, alpha, Config::scale);
+			}
 		}
 	}
 
@@ -277,6 +281,7 @@ void Mario::SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible)
 void Mario::Disable()
 {
 	Arms::Clear();
+	Star::Reset();
 	Pose::Reset();
 	Render::Hide();
 	Camera::Restore();
@@ -413,9 +418,10 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 		if (dx * dx + dz * dz > 1e-4f) { in.camLookX = dx; in.camLookZ = dz; }
 	}
 
-	// Skyrim is swinging, casting, blocking or drawing: Mario faces the crosshair and his arms play Skyrim's animation
-	// (Pose.cpp); the rest of him, his movement and his own moves stay SM64's. The hidden player does the damage.
-	if (Pose::Active()) Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
+	// Skyrim swinging, casting, blocking or drawing: Mario's body turns to the crosshair and his upper body plays Skyrim's
+	// animation (Pose.cpp, drawn by Render); SM64 still steers him with the stick, so he strafes. The hidden player does
+	// the damage.
+	if (input->dive.exchange(false)) Sm64::set_mario_action(_id, 0x0188088A);   // ACT_DIVE (the pad's X tap)
 	Caps::Tick(a_player, _id);
 	if (Sm64::lock) Sm64::lock();
 	// keep this tick's output as the one to blend from, before SM64 overwrites it
@@ -427,4 +433,5 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 	Pose::OnTick(_state.position, Arms::PartCount());
 	Arms::ReadHands([this](const float* p) { return ToSkyrim(p); }, RE::NI_PI - _state.faceAngle);
 	Combat::Tick(a_player, _id, _state, ToSkyrim(_state.position), [this](const RE::NiPoint3& p) { return ToSm64(p); });
+	Star::Tick(a_player, _id, _state);
 }

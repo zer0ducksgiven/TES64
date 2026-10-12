@@ -30,7 +30,14 @@ namespace Sm64
 	inline std::vector<std::uint8_t> rom;       // kept: libsm64's audio reads its sound banks from it
 	inline std::vector<std::uint8_t> texture;
 	inline void (*audio_volume)(int) = nullptr;
-	inline void (*play_sound)(std::uint32_t) = nullptr;   // sm64_ng64_play_sound: a sound from the ROM at Mario
+	inline void (*play_sound)(std::uint32_t) = nullptr;
+	// optional (looked up by name, may be null): for objects in the world (Star.cpp)
+	inline decltype(&sm64_surface_find_floor_height)  find_floor_height = nullptr;
+	inline decltype(&sm64_surface_find_wall_collision) find_wall_collision = nullptr;
+	inline decltype(&sm64_surface_find_ceil)          find_ceil = nullptr;
+	inline decltype(&sm64_set_mario_action_arg)       set_mario_action_arg = nullptr;
+	inline decltype(&sm64_mario_heal)                 mario_heal = nullptr;
+	inline decltype(&sm64_ng64_music_play)            music_play = nullptr;   // sm64_ng64_play_sound: a sound from the ROM at Mario
 	inline void (*lock)() = nullptr;
 	inline void (*unlock)() = nullptr;   // Mario's texture atlas, RGBA, from the ROM
 

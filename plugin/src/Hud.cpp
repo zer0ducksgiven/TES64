@@ -20,6 +20,8 @@ namespace
 		int  magicka = 0;
 		int  coins = 0;
 		int  stars = 0;
+		float heading = 0.0f;   // the camera's, radians: 0 north, + clockwise (east)
+		bool compass = false;
 	};
 	std::mutex s_lock;
 	State      s_state;
@@ -246,59 +248,79 @@ namespace
 
 	// the HUD in SM64 pixels scaled to the screen: coins and stars top left, as SM64; Skyrim's three meters bottom right,
 	// POWER (health) at the corner, the stamina and magicka in small head frames to its left
-	constexpr float kBlockW = 140.0f, kBlockH = 64.0f, kMargin = 6.0f;
+	constexpr float kBlockW = 144.0f, kBlockH = 64.0f, kMargin = 6.0f;
 	std::vector<Quad> Layout(const State& a_s, float a_width, float a_height)
 	{
 		std::vector<Quad> q;
-		const float s = a_height / 240.0f * 0.75f;   // SM64 pixels -> screen
-		const float tlX = 14 * s, tlY = 12 * s;
-		const float brX = a_width - (kBlockW + kMargin) * s, brY = a_height - (kBlockH + kMargin) * s;
+		const float s = a_height / 240.0f * 0.75f * Config::hudScale;   // SM64 pixels -> screen
+		const float blX = kMargin * s, blY = a_height - (kBlockH + kMargin) * s;
 		auto add = [&](const std::string& a_name, float ox, float oy, float x, float y, float w, float h) {
 			if (auto im = Img(a_name)) q.push_back({ im, ox + x * s, oy + y * s, w * s, h * s });
 		};
-		auto top = [&](const std::string& a_name, float x, float y, float w, float h) { add(a_name, tlX, tlY, x, y, w, h); };
-		auto bottom = [&](const std::string& a_name, float x, float y, float w, float h) { add(a_name, brX, brY, x, y, w, h); };
+		auto bottom = [&](const std::string& a_name, float x, float y, float w, float h) { add(a_name, blX, blY, x, y, w, h); };
 
-		// coins and stars, top left
+		// coins and stars, top right (clear of Skyrim's notifications at the top left), right-aligned to the corner
 		auto counter = [&](const char* a_icon, int a_value, float y) {
-			top(a_icon, 72, y, 16, 16);
-			top("times", 88, y, 16, 16);
-			auto digits = std::to_string(std::clamp(a_value, 0, 9999));
-			for (std::size_t i = 0; i < digits.size(); i++) top(std::string("digit_") + digits[i], 104 + 12.0f * i, y, 16, 16);
+			auto        digits = std::to_string(std::clamp(a_value, 0, 9999));
+			const float w = 32.0f + 12.0f * digits.size() + 4.0f;
+			const float ox = a_width - (w + kMargin + 4.0f) * s, oy = (kMargin + 2.0f) * s;
+			add(a_icon, ox, oy, 0, y, 16, 16);
+			add("times", ox, oy, 16, y, 16, 16);
+			for (std::size_t i = 0; i < digits.size(); i++) add(std::string("digit_") + digits[i], ox, oy, 32 + 12.0f * i, y, 16, 16);
 		};
-		counter("coin", a_s.coins, 8);
-		counter("star", a_s.stars, 30);
+		counter("star", a_s.stars, 0);
+		counter("coin", a_s.coins, 20);
 
 		// a word in the HUD font along an arc, the letters fanned out like POWER's were (each turned a little more than
 		// the last, the middle ones raised), in a bar's colour; x is the word's centre, y the top of the letters
 		auto label = [&](const std::string& a_word, const char* a_key, float cx, float y, float a_size, float a_advance) {
-			const int   n = static_cast<int>(a_word.size());
+			const int n = static_cast<int>(a_word.size());
 			for (int i = 0; i < n; i++) {
 				const float t = i - (n - 1) / 2.0f;
 				auto        im = Img("letter_" + std::string(1, a_word[i]) + "|" + a_key);
 				if (!im) continue;
-				Quad quad{ im, brX + (cx + t * a_advance - a_size / 2) * s, brY + (y - 0.7f * (a_size / 12.0f) * (3.0f - 0.6f * t * t)) * s, a_size * s, a_size * s };
+				Quad quad{ im, blX + (cx + t * a_advance - a_size / 2) * s, blY + (y - 0.7f * (a_size / 12.0f) * (3.0f - 0.6f * t * t)) * s, a_size * s, a_size * s };
 				quad.angle = t * 0.13f;
 				q.push_back(quad);
 			}
 		};
 
-		// bottom right: stamina and magicka in small copies of the POWER meter's Mario-head frame (to be given a background of
-		// their own), then the POWER meter at the corner
+		// bottom left: the POWER meter (LIFE) at the corner, then magicka and stamina in small copies of its Mario-head
+		// frame (Skyrim's own order: magicka, health, stamina)
+		bottom("meter_left", 0, 0, 32, 64);
+		bottom("meter_right", 32, 0, 32, 64);
+		if (a_s.wedges > 0) bottom("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)) + "|health", 16, 16, 32, 32);
+		label("LIFE", "health", 32, 7.0f, 13.0f, 11.5f);
 		constexpr float kFrame = 38.0f, kPie = kFrame / 2.0f, kTop = 64.0f - kFrame;
-		auto miniMeter = [&](float x, int a_wedges, const char* a_key) {
+		auto miniMeter = [&](float x, int a_wedges, const char* a_key, const char* a_word) {
 			bottom("meter_left", x, kTop, kFrame / 2.0f, kFrame);
 			bottom("meter_right", x + kFrame / 2.0f, kTop, kFrame / 2.0f, kFrame);
 			if (a_wedges > 0) bottom("pie_" + std::to_string(a_wedges) + "|" + a_key, x + kFrame / 4.0f, kTop + kFrame / 4.0f, kPie, kPie);
+			label(a_word, a_key, x + kFrame / 2, kTop + 4.0f, 7.5f, 5.3f);
 		};
-		miniMeter(0, a_s.stamina, kStamina.key);
-		miniMeter(kFrame, a_s.magicka, kMagicka.key);
-		label("STAMINA", kStamina.key, kFrame / 2, kTop + 4.0f, 7.5f, 5.3f);
-		label("MAGIKA", kMagicka.key, kFrame * 1.5f, kTop + 4.0f, 7.5f, 5.3f);
-		bottom("meter_left", 76, 0, 32, 64);
-		bottom("meter_right", 108, 0, 32, 64);
-		if (a_s.wedges > 0) bottom("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)) + "|health", 92, 16, 32, 32);
-		label("LIFE", "health", 108, 7.0f, 13.0f, 11.5f);
+		miniMeter(66, a_s.magicka, kMagicka.key, "MAGIKA");
+		miniMeter(66 + kFrame + 2, a_s.stamina, kStamina.key, "STAMINA");
+
+		// the compass, top centre: a wooden bar in the POWER frame's wood, SM64's letters for the four points sliding
+		// past as the camera turns (90 degrees either side shown), coins for the in-between points
+		if (a_s.compass) {
+			constexpr float kBarW = 176.0f, kBarH = 20.0f, kHalf = RE::NI_HALF_PI;
+			const float     ox = (a_width - kBarW * s) / 2, oy = kMargin * s;
+			add("compass_bar", ox, oy, 0, 0, kBarW, kBarH);
+			static const struct { const char* name; float angle; float size; } points[] = {
+				{ "letter_N", 0.0f, 14 }, { "letter_E", RE::NI_HALF_PI, 14 }, { "letter_S", RE::NI_PI, 14 }, { "letter_W", -RE::NI_HALF_PI, 14 },
+				{ "coin", RE::NI_PI / 4, 8 }, { "coin", 3 * RE::NI_PI / 4, 8 }, { "coin", -RE::NI_PI / 4, 8 }, { "coin", -3 * RE::NI_PI / 4, 8 },
+			};
+			for (auto& p : points) {
+				float rel = p.angle - a_s.heading;
+				while (rel > RE::NI_PI) rel -= RE::NI_TWO_PI;
+				while (rel < -RE::NI_PI) rel += RE::NI_TWO_PI;
+				if (std::abs(rel) > kHalf * 0.92f) continue;
+				const float x = kBarW / 2 + rel / kHalf * (kBarW / 2 - 10) - p.size / 2;
+				add(p.name, ox, oy, x, (kBarH - p.size) / 2, p.size, p.size);
+			}
+			add("compass_pointer", ox, oy, kBarW / 2 - 4, kBarH - 3, 8, 6);   // where the camera looks
+		}
 		return q;
 	}
 
@@ -415,28 +437,45 @@ namespace
 		return std::clamp(static_cast<int>(std::ceil(8.0f * a_current / a_max)), 0, 8);
 	}
 
-	// Skyrim's own health, stamina and magicka bars are the HUD's Flash meters: hidden while Mario is out, since
-	// the power meters show the same things. Re-applied now and then (the HUD shows them again on changes).
-	void SetVanillaMetersVisible(bool a_visible)
+	// a movie clip under the HUD's base object by dotted path ("CompassShoutMeterHolder.Compass"), shown or hidden.
+	// False if the clip isn't there (the instance names are hudmenu.swf's; HUD mods may rename them)
+	bool SetClipVisible(const char* a_path, bool a_visible)
 	{
 		auto ui = RE::UI::GetSingleton();
 		auto menu = ui ? ui->GetMenu<RE::HUDMenu>() : nullptr;
-		if (!menu) return;
-		// the three meters are movie clips of the HUD's base object, which also holds the compass and the shout
-		// meter: only these clips are hidden (instance names in the game's hudmenu.swf)
+		if (!menu) return false;
 		auto& rd = menu->GetRuntimeData();
-		if (!rd.health || !rd.health->root.IsDisplayObject()) return;
-		RE::GFxValue& base = rd.health->root;
-		for (const char* clip : { "Health", "Stamina", "Magica" }) {
-			RE::GFxValue meter;
-			if (!base.GetMember(clip, &meter) || !meter.IsDisplayObject()) {
-				if (Config::telemetry) logger::info("hud: no vanilla meter clip {}", clip);
-				continue;
-			}
-			RE::GFxValue::DisplayInfo info;
-			if (!meter.GetDisplayInfo(&info)) continue;
-			info.SetVisible(a_visible);
-			meter.SetDisplayInfo(info);
+		if (!rd.health || !rd.health->root.IsDisplayObject()) return false;
+		RE::GFxValue clip = rd.health->root;
+		std::string  path = a_path;
+		for (std::size_t start = 0; start <= path.size();) {
+			const auto  dot = path.find('.', start);
+			std::string name = path.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
+			RE::GFxValue next;
+			if (!clip.GetMember(name.c_str(), &next) || !next.IsDisplayObject()) return false;
+			clip = next;
+			if (dot == std::string::npos) break;
+			start = dot + 1;
+		}
+		RE::GFxValue::DisplayInfo info;
+		if (!clip.GetDisplayInfo(&info)) return false;
+		info.SetVisible(a_visible);
+		clip.SetDisplayInfo(info);
+		return true;
+	}
+
+	// Skyrim's own health, stamina and magicka bars: hidden while Mario is out, the power meters show the same things.
+	// Also the crosshair with the weapons away, and the compass when Mario's own is drawn. Re-applied now and then
+	// (the HUD shows them again on changes).
+	void SetVanillaVisible(bool a_meters, bool a_crosshair, bool a_compass)
+	{
+		for (const char* clip : { "Health", "Stamina", "Magica" }) SetClipVisible(clip, a_meters);
+		static bool s_logged = false;
+		const bool  cross = SetClipVisible("CrosshairInstance", a_crosshair) | SetClipVisible("Crosshair", a_crosshair);
+		const bool  comp = SetClipVisible("CompassShoutMeterHolder.Compass", a_compass) || SetClipVisible("CompassRect", a_compass);
+		if (Config::telemetry && !s_logged) {
+			logger::info("hud: crosshair clip {}, compass clip {}", cross ? "found" : "missing", comp ? "found" : "missing");
+			s_logged = true;
 		}
 	}
 
@@ -461,6 +500,41 @@ namespace
 	}
 }
 
+// the compass bar: a rounded plank in the POWER frame's wood (tan, lighter on top, a dark brown outline), and a small
+// red pointer for the middle. Generated here, not from the ROM.
+Image MakeCompassBar()
+{
+	constexpr int W = 176, H = 20;
+	Image         im{ W, H, std::vector<std::uint8_t>(W * H * 4, 0), nullptr };
+	const float   r = H / 2.0f;
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++) {
+			const float cx = std::clamp(x + 0.5f, r, W - r), cy = r;
+			const float d = std::hypot(x + 0.5f - cx, y + 0.5f - cy);
+			if (d > r) continue;
+			std::uint8_t* p = &im.rgba[(y * W + x) * 4];
+			if (d > r - 1.6f) { p[0] = 131; p[1] = 82; p[2] = 32; p[3] = 255; continue; }
+			const float t = std::clamp(1.0f - (y / float(H)) * 0.8f + 0.08f * std::sin(x * 0.35f + 1.3f * std::sin(y * 0.7f)), 0.0f, 1.0f);
+			const float dark[3] = { 238, 156, 82 }, light[3] = { 255, 230, 139 };
+			for (int k = 0; k < 3; k++) p[k] = static_cast<std::uint8_t>(dark[k] + (light[k] - dark[k]) * t);
+			p[3] = 230;
+		}
+	return im;
+}
+
+Image MakePointer()
+{
+	constexpr int W = 8, H = 6;
+	Image         im{ W, H, std::vector<std::uint8_t>(W * H * 4, 0), nullptr };
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++)
+			if (std::abs(x + 0.5f - W / 2.0f) <= (H - y) * 0.7f) {
+				std::uint8_t* p = &im.rgba[(y * W + x) * 4];
+				p[0] = 230; p[1] = 30; p[2] = 30; p[3] = 255;
+			}
+	return im;
+}
+
 bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 {
 	HMODULE dll = ::GetModuleHandleW(L"sm64.dll");
@@ -473,7 +547,7 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 	std::vector<std::string> names = { "times", "coin", "mario", "star", "meter_left", "meter_right" };
 	for (int i = 0; i <= 9; i++) names.push_back("digit_" + std::to_string(i));
 	for (int i = 1; i <= 8; i++) names.push_back("pie_" + std::to_string(i));
-	for (char c : std::string("AEFGIKLMNST")) names.push_back(std::string("letter_") + c);
+	for (char c : std::string("AEFGIKLMNSTW")) names.push_back(std::string("letter_") + c);
 	for (auto& n : names) {
 		const std::uint8_t* px = nullptr;
 		int                 w = 0, h = 0;
@@ -519,6 +593,8 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
 		}
 	}
+	s_images["compass_bar"] = MakeCompassBar();
+	s_images["compass_pointer"] = MakePointer();
 	logger::info("hud: {} graphics from the ROM", s_images.size());
 	return !s_images.empty();
 }
@@ -581,12 +657,13 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 		if ((s_vanillaTimer -= a_delta) <= 0.0f) {
 			s_vanillaTimer = 0.2f;
 			const auto start = std::chrono::steady_clock::now();
-			SetVanillaMetersVisible(false);
+			const bool drawn = a_player->AsActorState()->IsWeaponDrawn();
+			SetVanillaVisible(false, drawn || !Config::hideCrosshairSheathed, !Config::compass);
 			s_vanillaMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 		}
 		s_vanillaHidden = true;
 	} else if (s_vanillaHidden) {
-		SetVanillaMetersVisible(true);
+		SetVanillaVisible(true, true, true);
 		s_vanillaHidden = false;
 	}
 
@@ -600,6 +677,11 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 		s_state.magicka = magicka;
 		s_state.coins = std::max(0, s_coins);
 		s_state.stars = s_stars;
+		s_state.compass = Config::compass && a_marioActive;
+		if (auto camera = RE::PlayerCamera::GetSingleton(); camera && camera->cameraRoot) {
+			const auto& r = camera->cameraRoot->world.rotate;   // its forward is the second column
+			s_state.heading = std::atan2(r.entry[0][1], r.entry[1][1]);
+		}
 	}
 	if (Config::telemetry && a_marioActive && (s_telTimer += a_delta) >= 1.0f) {
 		s_telTimer = 0.0f;

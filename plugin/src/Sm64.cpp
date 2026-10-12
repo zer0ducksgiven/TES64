@@ -46,6 +46,12 @@ bool Sm64::Init()
 	          Resolve(dll, rom_error, "tes64_rom_error");
 	if (!ok) return false;
 	play_sound = reinterpret_cast<decltype(play_sound)>(::GetProcAddress(dll, "sm64_ng64_play_sound"));
+	find_floor_height = reinterpret_cast<decltype(find_floor_height)>(::GetProcAddress(dll, "sm64_surface_find_floor_height"));
+	find_wall_collision = reinterpret_cast<decltype(find_wall_collision)>(::GetProcAddress(dll, "sm64_surface_find_wall_collision"));
+	find_ceil = reinterpret_cast<decltype(find_ceil)>(::GetProcAddress(dll, "sm64_surface_find_ceil"));
+	set_mario_action_arg = reinterpret_cast<decltype(set_mario_action_arg)>(::GetProcAddress(dll, "sm64_set_mario_action_arg"));
+	mario_heal = reinterpret_cast<decltype(mario_heal)>(::GetProcAddress(dll, "sm64_mario_heal"));
+	music_play = reinterpret_cast<decltype(music_play)>(::GetProcAddress(dll, "sm64_ng64_music_play"));
 
 	std::ifstream f(std::filesystem::path(Config::romPath), std::ios::binary);
 	if (Config::romPath.empty() || !f) {

@@ -186,7 +186,20 @@ void Arms::Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const 
 		return h;
 	};
 	Arms::Hand right = blend(s_rightPrev, s_right), left = blend(s_leftPrev, s_left);
-	// while Skyrim's arm animation shows, the hands are where that animation put them
+	// the body turned toward the crosshair (Pose::Yaw, about the vertical): Mario's own hands turn with it
+	if (const float yaw = Pose::Yaw(); yaw != 0.0f) {
+		const float   c = std::cos(yaw), s = std::sin(yaw);
+		RE::NiMatrix3 rz;
+		rz.entry[0][0] = c; rz.entry[0][1] = -s; rz.entry[0][2] = 0;
+		rz.entry[1][0] = s; rz.entry[1][1] = c; rz.entry[1][2] = 0;
+		rz.entry[2][0] = 0; rz.entry[2][1] = 0; rz.entry[2][2] = 1;
+		for (auto* h : { &right, &left }) {
+			const RE::NiPoint3 d = h->pos - a_root;
+			h->pos = a_root + RE::NiPoint3{ d.x * c - d.y * s, d.x * s + d.y * c, d.z };
+			h->grip = rz * h->grip;
+		}
+	}
+	// while Skyrim's animation shows, the hands are where it put them
 	auto posed = [&](Arms::Hand& a_hand, const Pose::Arm* a_arm) {
 		if (!a_arm) return;
 		const float s = Config::scale;

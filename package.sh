@@ -14,7 +14,10 @@ cp plugin/TES64.ini "$P/"
 cp native/sm64/dist/sm64.dll "$P/TES64/"
 py -3 tools/make_mario_nif.py >/dev/null
 py -3 tools/make_esp.py >/dev/null
+# the SM64 font for Skyrim's text, from Mario64.ttf beside this script (not in the repo: the player's or the packager's own)
+if [ -f Mario64.ttf ]; then mkdir -p plugin/data/Interface && py -3 tools/make_font_swf.py Mario64.ttf plugin/data/Interface/fonts_tes64.swf Mario64 >/dev/null; fi
 cp -r plugin/data/meshes plugin/data/textures plugin/data/MCM plugin/data/TES64.esp dist/TES64/Data/
+if [ -f plugin/data/Interface/fonts_tes64.swf ]; then mkdir -p dist/TES64/Data/Interface && cp plugin/data/Interface/fonts_tes64.swf dist/TES64/Data/Interface/; fi
 cp README.md LICENSE dist/TES64/ 2>/dev/null || true
 
 # Test bundle: SKSE64 and Address Library, from the copies on this PC (the SKSE .7z in the repo root, the bins in the

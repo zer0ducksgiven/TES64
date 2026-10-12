@@ -9,7 +9,7 @@ namespace Pose
 	struct Arm
 	{
 		float m[3][16];      // the three parts' matrices (row-vector, SM64 axes), relative to Mario's position
-		float handRel[3];    // the hand's place, relative to Mario's position, SM64 axes
+		float handRel[3];    // the hand's place, relative to Mario's position, SM64 axes (after the body yaw)
 	};
 
 	void Reset();
@@ -19,16 +19,19 @@ namespace Pose
 
 	// each frame, before the ticks: is Skyrim animating an arm action, and how much of it shows
 	void Track(RE::PlayerCharacter* a_player, float a_delta);
-	// each frame, after the ticks: the arms' matrices, from the skeleton, blended between the last two ticks
-	void Compute(RE::PlayerCharacter* a_player, float a_alpha);
+	// each frame, after the ticks: the upper body's parts, from the skeleton, blended between the last two ticks.
+	// a_face: Mario's SM64 facing (where he runs)
+	void Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face);
 
 	bool        Active();   // an action is on (and a moment after): Mario faces the crosshair
 	float       Weight();   // 0 = Mario's own arms, 1 = Skyrim's (the larger of the two arms)
 	float       WeightRight();
 	float       WeightLeft();
+	float       Yaw();      // SM64 radians the whole body is turned from his running direction toward the crosshair
 	const Arm*  Right();    // nullptr when Skyrim's pose isn't showing
 	const Arm*  Left();
 
-	// the arm triangles' places under the pose: rel = offset from Mario (SM64 axes), nrm = normal. False: not posed.
+	// a posed triangle's place: rel = offset from Mario (SM64 axes), nrm = normal, both before the body Yaw(). False: not
+	// posed (use SM64's own).
 	bool Transform(int a_tri, int a_corner, float a_rel[3], float a_nrm[3]);
 }

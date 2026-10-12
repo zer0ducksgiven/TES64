@@ -50,6 +50,9 @@ Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64\sm64.dll"; DestDir: "{app}\Data\S
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.ini"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#Dist}\TES64\Data\meshes\TES64\*"; DestDir: "{app}\Data\meshes\TES64"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\textures\TES64\*"; DestDir: "{app}\Data\textures\TES64"; Flags: ignoreversion
+#ifexist "..\dist\TES64\Data\Interface\fonts_tes64.swf"
+Source: "{#Dist}\TES64\Data\Interface\fonts_tes64.swf"; DestDir: "{app}\Data\Interface"; Flags: ignoreversion
+#endif
 Source: "{#Dist}\TES64\Data\TES64.esp"; DestDir: "{app}\Data"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\MCM\Config\TES64\*"; DestDir: "{app}\Data\MCM\Config\TES64"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{localappdata}\TES64"; Flags: ignoreversion
@@ -64,6 +67,8 @@ Type: filesandordirs; Name: "{app}\Data\textures\TES64"
 Type: filesandordirs; Name: "{app}\Data\meshes\TES64"
 Type: filesandordirs; Name: "{localappdata}\TES64"
 Type: files; Name: "{app}\Data\TES64.esp"
+Type: files; Name: "{app}\Data\Interface\fonts_tes64.swf"
+Type: files; Name: "{app}\Data\Interface\fontconfig.txt"
 Type: filesandordirs; Name: "{app}\Data\MCM\Config\TES64"
 
 [Code]

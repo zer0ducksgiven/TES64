@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "Hud.h"
 #include "Reactions.h"
+#include "Star.h"
 
 #include <fstream>
 #include <sstream>
@@ -51,6 +52,9 @@ void DebugChannel::Poll()
 			}
 		} else if (cmd == "doorbodies") {
 			Collision::LogDoorBodies(player, 6000.0f);
+		} else if (cmd == "star") {
+			Star::SpawnNow();
+			logger::info("debug: star -> next tick");
 		} else if (cmd == "snap") {
 			Hud::RequestSnapshot();
 			logger::info("debug: snap -> next frame");

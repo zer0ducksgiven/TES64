@@ -72,6 +72,7 @@ namespace
 	std::uint32_t                          s_lastAction = 0;
 	std::int32_t                           s_lastAnim = -1;
 	std::vector<RE::ObjectRefHandle>       s_hitThisAttack;
+	std::vector<RE::ObjectRefHandle>       s_stompedThisJump;   // one bounce per person per jump: cleared on landing
 	std::int16_t                           s_lastWedges = 8;
 	bool                                   s_injected = false;   // our own knockback took wedges: not SM64 damage
 	bool                                   s_suppressNext = false, s_suppressCurrent = false;
@@ -163,6 +164,7 @@ void Combat::Reset()
 	s_lastAction = 0;
 	s_lastAnim = -1;
 	s_hitThisAttack.clear();
+	s_stompedThisJump.clear();
 	s_lastWedges = 8;
 	s_injected = false;
 	std::scoped_lock l(s_lock);
@@ -223,6 +225,7 @@ void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM6
 	const Attack*        attack = s_suppressCurrent ? nullptr : AttackFor(a_state.action);
 	const float          scale = Config::scale / 0.48f;   // hit sizes were tuned at the default Mario scale
 
+	if (!(a_state.action & ACT_FLAG_AIR)) s_stompedThisJump.clear();
 	// a stomp: falling onto someone's head
 	const bool falling = (a_state.action & ACT_FLAG_AIR) && a_state.velocity[1] < -10.0f;
 
@@ -246,9 +249,12 @@ void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM6
 				// + the target's own width: Skyrim actors are wider than SM64's enemies
 				if (std::hypot(pos.x - c.x, pos.y - c.y) < (attack->radius * scale + 35.0f) && bodyRange) hit = attack;
 			}
-			if (!hit && falling && dxy < 40.0f * scale && a_marioPos.z > pos.z + height * 0.7f && a_marioPos.z < pos.z + height + 30.0f) {
+			const auto handle = actor->CreateRefHandle();
+			const bool stompedAlready = std::find(s_stompedThisJump.begin(), s_stompedThisJump.end(), handle) != s_stompedThisJump.end();
+			if (!hit && falling && !stompedAlready && dxy < 40.0f * scale && a_marioPos.z > pos.z + height * 0.7f && a_marioPos.z < pos.z + height + 30.0f) {
 				// landing on a head: a ground pound hits much harder than a plain stomp; both bounce Mario off
 				const bool pounding = a_state.action == ACT_GROUND_POUND;
+				s_stompedThisJump.push_back(handle);
 				hit = pounding ? &poundDrop : &stomp;
 				Sm64::set_mario_velocity(a_mario, a_state.velocity[0], pounding ? 30.0f : 40.0f, a_state.velocity[2]);
 				Play(pounding ? SOUND_POUND_ROCK : SOUND_BOUNCE_OFF_OBJECT);

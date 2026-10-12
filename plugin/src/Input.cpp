@@ -5,7 +5,8 @@
 namespace
 {
 	// XInput button masks, as Skyrim reports them for a gamepad
-	constexpr std::uint32_t kPadLeftStick = 0x0040, kPadLeftShoulder = 0x0100, kPadA = 0x1000;
+	constexpr std::uint32_t kPadLeftStick = 0x0040, kPadLeftShoulder = 0x0100, kPadA = 0x1000, kPadX = 0x4000;
+	constexpr float         kTap = 0.3f;   // seconds: shorter on X is a dive, longer is Skyrim's draw / sheathe
 }
 
 void Input::Register()
@@ -36,12 +37,15 @@ RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE:
 		if (device != RE::INPUT_DEVICE::kKeyboard && device != RE::INPUT_DEVICE::kGamepad) continue;
 
 		if (device == RE::INPUT_DEVICE::kGamepad) {
-			// an Xbox pad, fixed to the usual layout whatever Skyrim's own bindings are: A jumps, B punches/kicks/dives
-			// (SM64's B), the left bumper or the left stick's click crouches / ground-pounds (Z). Skyrim's triggers keep
-			// attacking and casting, so the sticks, triggers, X (weapon), Y, the shoulders' shouts and the d-pad stay Skyrim's.
+			// an Xbox pad, fixed whatever Skyrim's own bindings are: A jumps, Y punches / kicks (SM64's B; B is Skyrim's
+			// menu), a tap of X dives (holding X stays Skyrim's draw / sheathe), the left bumper or the left stick's click
+			// crouches / ground-pounds (Z). The sticks, triggers (attack, cast), B, the shouts and the d-pad stay Skyrim's.
 			switch (code) {
 			case kPadA:
 				a = pressed;
+				break;
+			case kPadX:
+				if (button->IsUp() && button->HeldDuration() < kTap) dive = true;
 				break;
 			case kPadLeftShoulder:
 			case kPadLeftStick:

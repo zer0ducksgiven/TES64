@@ -23,6 +23,7 @@ namespace
 
 	// 3x3, row-major, row vectors: v * M. Rows are where the basis vectors go.
 	using M3 = std::array<float, 9>;
+	constexpr M3 kIdentity{ 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 	M3 Mul(const M3& a, const M3& b)
 	{
 		M3 c{};
@@ -31,6 +32,7 @@ namespace
 				for (int k = 0; k < 3; k++) c[i * 3 + j] += a[i * 3 + k] * b[k * 3 + j];
 		return c;
 	}
+	M3 Transpose(const M3& a) { return { a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8] }; }
 	V3 Apply(V3 v, const M3& m)
 	{
 		return { v.x * m[0] + v.y * m[3] + v.z * m[6], v.x * m[1] + v.y * m[4] + v.z * m[7], v.x * m[2] + v.y * m[5] + v.z * m[8] };
@@ -40,8 +42,8 @@ namespace
 	{
 		const V3    v = Cross(a, b);
 		const float c = Dot(a, b);
-		M3          rc{ 1, 0, 0, 0, 1, 0, 0, 0, 1 };   // column-vector form first, transposed at the end
-		if (c < -0.9999f) {                           // opposite: half a turn about anything perpendicular
+		M3          rc = kIdentity;   // column-vector form first, transposed at the end
+		if (c < -0.9999f) {           // opposite: half a turn about anything perpendicular
 			const V3 axis = Norm(Cross(a, std::abs(a.x) < 0.9f ? V3{ 1, 0, 0 } : V3{ 0, 1, 0 }), V3{ 0, 0, 1 });
 			const float u[3] = { axis.x, axis.y, axis.z };
 			for (int i = 0; i < 3; i++)
@@ -52,10 +54,31 @@ namespace
 		const M3    vx{ 0, -v.z, v.y, v.z, 0, -v.x, -v.y, v.x, 0 };
 		const M3    vx2 = Mul(vx, vx);
 		for (int i = 0; i < 9; i++) rc[i] += vx[i] + k * vx2[i];
-		M3 r{};
-		for (int i = 0; i < 3; i++)
-			for (int j = 0; j < 3; j++) r[i * 3 + j] = rc[j * 3 + i];
-		return r;
+		return Transpose(rc);
+	}
+	// a rotation scaled toward none: its angle times a_t, about the same axis (row form in, row form out)
+	M3 Partial(const M3& a_r, float a_t)
+	{
+		if (a_t >= 0.999f) return a_r;
+		const float c = std::clamp((a_r[0] + a_r[4] + a_r[8] - 1.0f) / 2.0f, -1.0f, 1.0f);
+		const float angle = std::acos(c);
+		if (angle < 1e-4f) return kIdentity;
+		const M3 col = Transpose(a_r);   // the axis from the column form's skew part
+		V3       axis{ col[7] - col[5], col[2] - col[6], col[3] - col[1] };
+		axis = Norm(axis, V3{ 0, 1, 0 });
+		const float a = angle * a_t, s = std::sin(a), cc = std::cos(a), t = 1 - cc;
+		const M3    out{ t * axis.x * axis.x + cc, t * axis.x * axis.y - s * axis.z, t * axis.x * axis.z + s * axis.y,
+			   t * axis.x * axis.y + s * axis.z, t * axis.y * axis.y + cc, t * axis.y * axis.z - s * axis.x,
+			   t * axis.x * axis.z - s * axis.y, t * axis.y * axis.z + s * axis.x, t * axis.z * axis.z + cc };
+		return Transpose(out);
+	}
+	// about SM64's up axis: Mario's facing f turned to f + a
+	V3 Yawed(V3 v, float a) { return { v.x * std::cos(a) + v.z * std::sin(a), v.y, -v.x * std::sin(a) + v.z * std::cos(a) }; }
+	float Wrap(float a)
+	{
+		while (a > RE::NI_PI) a -= RE::NI_TWO_PI;
+		while (a < -RE::NI_PI) a += RE::NI_TWO_PI;
+		return a;
 	}
 
 	// ---- state ---------------------------------------------------------------------------------------------------
@@ -65,18 +88,32 @@ namespace
 	const float* (*s_partMatrix)(int) = nullptr;
 	bool s_resolved = false;
 
-	float s_cur[16][16], s_prev[16][16];
+	// libsm64's parts: 0 root, 1 pelvis, 2 torso, 3 head, 4-6 left arm, 7-9 right arm (upper, fore, hand), 10-15 legs
+	constexpr int kParts = 16, kTorso = 2, kHead = 3, kLeftArm = 4, kRightArm = 7;
+	float s_cur[kParts][16], s_prev[kParts][16];
 	float s_posCur[3], s_posPrev[3];
 	bool  s_layoutOk = false;   // Mario has his usual 16 parts this tick
 
 	bool  s_acting = false;
-	float s_tail = 0.0f;
 	float s_weight = 0.0f;                  // the larger of the two arms'
 	float s_wRight = 0.0f, s_wLeft = 0.0f;  // how much of Skyrim's pose each arm shows
 	float s_tailRight = 0.0f, s_tailLeft = 0.0f;
 	bool  s_actRight = false, s_actLeft = false;
 	bool  s_active = false;     // the pose is showing this frame
+	float s_yaw = 0.0f;         // Mario's body turned this much (SM64 radians) from where he runs, toward the crosshair
 
+	// Skyrim's spine and head in the actor's own frame while it stands idle: the pose is how far they move from that
+	bool          s_haveRest = false;
+	RE::NiMatrix3 s_restSpine, s_restHead;
+
+	// posed parts this frame (row-vector, relative to Mario, before the body yaw)
+	struct Part
+	{
+		M3   rot = kIdentity;
+		V3   t;
+		bool posed = false;
+	};
+	Part      s_parts[kParts];
 	Pose::Arm s_right, s_left;
 	bool      s_rightOk = false, s_leftOk = false;
 
@@ -93,10 +130,7 @@ namespace
 	}
 
 	V3 Translation(const float (&a_m)[16]) { return { a_m[12], a_m[13], a_m[14] }; }
-	M3 Rotation(const float (&a_m)[16])
-	{
-		return { a_m[0], a_m[1], a_m[2], a_m[4], a_m[5], a_m[6], a_m[8], a_m[9], a_m[10] };
-	}
+	M3 Rotation(const float (&a_m)[16]) { return { a_m[0], a_m[1], a_m[2], a_m[4], a_m[5], a_m[6], a_m[8], a_m[9], a_m[10] }; }
 	// Skyrim world (x east, y north, z up) -> SM64 (x, y up, z): the plugin's usual mapping
 	V3 ToSm64(const RE::NiPoint3& a_p) { return { a_p.x, a_p.z, -a_p.y }; }
 
@@ -112,7 +146,6 @@ namespace
 		a_left = casting || moving || blocking;
 	}
 
-	// two rotations blended and made orthonormal again
 	void Ease(float& a_w, bool a_on, float a_dt)
 	{
 		const float target = a_on ? 1.0f : 0.0f;
@@ -120,26 +153,76 @@ namespace
 		if (std::abs(target - a_w) < 0.01f) a_w = target;
 	}
 
-	// one arm: the parts (shoulder, forearm, hand) at a_first.., Skyrim's bones for that side
-	bool ComputeArm(RE::NiAVObject* a_root, int a_first, const char* a_upper, const char* a_fore, const char* a_hand, float a_alpha, float a_weight, Pose::Arm& a_out)
+	// a rotation in the actor's own frame (column form: x right, y forward, z up) as a row-form rotation in Mario's
+	// SM64 frame when he faces a_face
+	M3 ActorToMario(const RE::NiMatrix3& a_d, float a_face)
+	{
+		const V3 axes[3] = { { -std::cos(a_face), 0, std::sin(a_face) }, { std::sin(a_face), 0, std::cos(a_face) }, { 0, 1, 0 } };
+		M3       col{};   // M D M^T, M's columns the actor's axes in SM64
+		for (int i = 0; i < 3; i++)
+			for (int j = 0; j < 3; j++) {
+				float v = 0;
+				for (int a = 0; a < 3; a++)
+					for (int b = 0; b < 3; b++) v += (&axes[a].x)[i] * a_d.entry[a][b] * (&axes[b].x)[j];
+				col[i * 3 + j] = v;
+			}
+		return Transpose(col);
+	}
+
+	RE::NiMatrix3 Blend(const RE::NiMatrix3& a, const RE::NiMatrix3& b, float t)
+	{
+		RE::NiMatrix3 m;
+		for (int i = 0; i < 3; i++)
+			for (int j = 0; j < 3; j++) m.entry[i][j] = a.entry[i][j] + (b.entry[i][j] - a.entry[i][j]) * t;
+		RE::NiPoint3 c0{ m.entry[0][0], m.entry[1][0], m.entry[2][0] }, c1{ m.entry[0][1], m.entry[1][1], m.entry[2][1] };
+		c0.Unitize();
+		c1 = c1 - c0 * c1.Dot(c0);
+		c1.Unitize();
+		const RE::NiPoint3 c[3] = { c0, c1, c0.Cross(c1) };
+		for (int k = 0; k < 3; k++) { m.entry[0][k] = c[k].x; m.entry[1][k] = c[k].y; m.entry[2][k] = c[k].z; }
+		return m;
+	}
+
+	void Store(const Part& a_p, float* a_m)
+	{
+		for (int r = 0; r < 3; r++) {
+			a_m[r * 4 + 0] = a_p.rot[r * 3 + 0];
+			a_m[r * 4 + 1] = a_p.rot[r * 3 + 1];
+			a_m[r * 4 + 2] = a_p.rot[r * 3 + 2];
+			a_m[r * 4 + 3] = 0.0f;
+		}
+		a_m[12] = a_p.t.x;
+		a_m[13] = a_p.t.y;
+		a_m[14] = a_p.t.z;
+		a_m[15] = 1.0f;
+	}
+
+	// hands are handed out after the body yaw (Arms puts the weapon there)
+	void Hand(int a_first, Pose::Arm& a_out)
+	{
+		const V3 hw = Yawed(s_parts[a_first + 2].t, s_yaw);
+		a_out.handRel[0] = hw.x;
+		a_out.handRel[1] = hw.y;
+		a_out.handRel[2] = hw.z;
+		for (int i = 0; i < 3; i++) Store(s_parts[a_first + i], a_out.m[i]);
+	}
+
+	// one arm: its three parts (shoulder, forearm, hand) at a_first.., already carried by the torso, turned so each
+	// segment points where Skyrim's skeleton's does
+	bool ComputeArm(RE::NiAVObject* a_root, int a_first, const char* a_upper, const char* a_fore, const char* a_hand, float a_weight, Pose::Arm& a_out)
 	{
 		auto up = a_root->GetObjectByName(a_upper), fore = a_root->GetObjectByName(a_fore), hand = a_root->GetObjectByName(a_hand);
 		if (!up || !fore || !hand) return false;
 
-		// Mario's own arm this frame, relative to him, blended between the last two ticks
 		V3 t[3];
-		for (int i = 0; i < 3; i++) {
-			const V3 cur = Translation(s_cur[a_first + i]) - V3{ s_posCur[0], s_posCur[1], s_posCur[2] };
-			const V3 prev = Translation(s_prev[a_first + i]) - V3{ s_posPrev[0], s_posPrev[1], s_posPrev[2] };
-			t[i] = prev + (cur - prev) * a_alpha;
-		}
+		for (int i = 0; i < 3; i++) t[i] = s_parts[a_first + i].t;
 		const V3    curU = t[1] - t[0], curF = t[2] - t[1];
 		const float lenU = Len(curU), lenF = Len(curF);
 		const V3    curUn = Norm(curU, V3{ 1, 0, 0 }), curFn = Norm(curF, V3{ 1, 0, 0 });
 
-		// where Skyrim's arm points
-		const V3 desU = Norm(ToSm64(fore->world.translate) - ToSm64(up->world.translate), curUn);
-		const V3 desF = Norm(ToSm64(hand->world.translate) - ToSm64(fore->world.translate), curFn);
+		// where Skyrim's arm points, in Mario's frame before his body is turned to the crosshair
+		const V3 desU = Norm(Yawed(ToSm64(fore->world.translate) - ToSm64(up->world.translate), -s_yaw), curUn);
+		const V3 desF = Norm(Yawed(ToSm64(hand->world.translate) - ToSm64(fore->world.translate), -s_yaw), curFn);
 
 		const V3 uw = Norm(curUn + (desU - curUn) * a_weight, curUn);
 		const M3 r1 = FromTo(curUn, uw);
@@ -147,26 +230,15 @@ namespace
 		const V3 fw = Norm(curF1 + (desF - curF1) * a_weight, curF1);
 		const M3 r2 = FromTo(curF1, fw);
 
-		const V3 shoulder = t[0], elbow = shoulder + uw * lenU, wrist = elbow + fw * lenF;
-		const V3 origin[3] = { shoulder, elbow, wrist };
+		const V3 origin[3] = { t[0], t[0] + uw * lenU, t[0] + uw * lenU + fw * lenF };
 		for (int i = 0; i < 3; i++) {
-			M3 rot = Mul(Rotation(s_cur[a_first + i]), r1);
-			if (i > 0) rot = Mul(rot, r2);
-			float* m = a_out.m[i];
-			for (int r = 0; r < 3; r++) {
-				m[r * 4 + 0] = rot[r * 3 + 0];
-				m[r * 4 + 1] = rot[r * 3 + 1];
-				m[r * 4 + 2] = rot[r * 3 + 2];
-				m[r * 4 + 3] = 0.0f;
-			}
-			m[12] = origin[i].x;
-			m[13] = origin[i].y;
-			m[14] = origin[i].z;
-			m[15] = 1.0f;
+			auto& p = s_parts[a_first + i];
+			p.rot = Mul(p.rot, r1);
+			if (i > 0) p.rot = Mul(p.rot, r2);
+			p.t = origin[i];
+			p.posed = true;
 		}
-		a_out.handRel[0] = wrist.x;
-		a_out.handRel[1] = wrist.y;
-		a_out.handRel[2] = wrist.z;
+		Hand(a_first, a_out);
 		return true;
 	}
 }
@@ -174,11 +246,11 @@ namespace
 void Pose::Reset()
 {
 	s_acting = false;
-	s_tail = 0.0f;
 	s_weight = s_wRight = s_wLeft = 0.0f;
 	s_actRight = s_actLeft = false;
 	s_tailRight = s_tailLeft = 0.0f;
 	s_active = false;
+	s_yaw = 0.0f;
 	s_layoutOk = false;
 	s_rightOk = s_leftOk = false;
 }
@@ -189,9 +261,9 @@ void Pose::OnTick(const float a_marioPos[3], int a_partCount)
 	std::memcpy(s_prev, s_cur, sizeof(s_cur));
 	std::memcpy(s_posPrev, s_posCur, sizeof(s_posCur));
 	std::memcpy(s_posCur, a_marioPos, sizeof(s_posCur));
-	s_layoutOk = s_resolved && a_partCount == 16;
+	s_layoutOk = s_resolved && a_partCount == kParts;
 	if (!s_layoutOk) return;
-	for (int i = 0; i < 16; i++) std::memcpy(s_cur[i], s_partMatrix(i), sizeof(s_cur[i]));
+	for (int i = 0; i < kParts; i++) std::memcpy(s_cur[i], s_partMatrix(i), sizeof(s_cur[i]));
 	static bool s_first = true;
 	if (s_first) {   // the very first tick has nothing before it
 		std::memcpy(s_prev, s_cur, sizeof(s_cur));
@@ -213,26 +285,67 @@ void Pose::Track(RE::PlayerCharacter* a_player, float a_delta)
 	s_weight = std::max(s_wRight, s_wLeft);
 }
 
-void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha)
+void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 {
 	s_active = false;
 	s_rightOk = s_leftOk = false;
-	if (!s_layoutOk || s_weight <= 0.01f) return;
+	s_yaw = 0.0f;
 	auto root = a_player->Get3D(false);
 	if (!root) return;
-	if (s_wRight > 0.01f) s_rightOk = ComputeArm(root, 7, "NPC R UpperArm [RUar]", "NPC R Forearm [RLar]", "NPC R Hand [RHnd]", a_alpha, s_wRight, s_right);
-	if (s_wLeft > 0.01f) s_leftOk = ComputeArm(root, 4, "NPC L UpperArm [LUar]", "NPC L Forearm [LLar]", "NPC L Hand [LHnd]", a_alpha, s_wLeft, s_left);
-	s_active = s_rightOk || s_leftOk;
+	auto spine = root->GetObjectByName("NPC Spine2 [Spn2]"), head = root->GetObjectByName("NPC Head [Head]");
+	const RE::NiMatrix3 actorT = root->world.rotate.Transpose();
+
+	// idle: learn how Skyrim's spine and head sit in the actor's frame
+	if (s_weight <= 0.0f && spine && head) {
+		const auto sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
+		s_restSpine = s_haveRest ? Blend(s_restSpine, sp, 0.1f) : sp;
+		s_restHead = s_haveRest ? Blend(s_restHead, hd, 0.1f) : hd;
+		s_haveRest = true;
+	}
+	if (!s_layoutOk || s_weight <= 0.01f) return;
+
+	// the whole body turns to the crosshair; SM64 keeps steering him where the stick points, so he strafes
+	s_yaw = Wrap(RE::NI_PI - a_player->GetAngleZ() - a_face) * s_weight;
+
+	// Mario's parts this frame, relative to him, blended between the last two ticks
+	for (int i = 0; i < kParts; i++) {
+		const V3 cur = Translation(s_cur[i]) - V3{ s_posCur[0], s_posCur[1], s_posCur[2] };
+		const V3 prev = Translation(s_prev[i]) - V3{ s_posPrev[0], s_posPrev[1], s_posPrev[2] };
+		s_parts[i] = { Rotation(s_cur[i]), prev + (cur - prev) * a_alpha, false };
+	}
+
+	// torso and head: Skyrim's spine lean and twist (and the head's turn) on Mario's upper body, pivoting at his waist;
+	// his arms ride along before they're aimed, so a swing winds up with the body instead of through it
+	if (Config::bodyPose && s_haveRest && spine && head) {
+		const auto sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
+		const M3   dSpine = Partial(ActorToMario(sp * s_restSpine.Transpose(), a_face), s_weight);
+		const M3   dHead = Partial(ActorToMario(hd * s_restHead.Transpose(), a_face), s_weight);
+		const V3   pivot = s_parts[kTorso].t;
+		for (int i = kTorso; i <= kRightArm + 2; i++) {
+			auto& p = s_parts[i];
+			p.t = pivot + Apply(p.t - pivot, dSpine);
+			p.rot = Mul(p.rot, i == kHead ? dHead : dSpine);
+			p.posed = true;
+		}
+	}
+
+	if (s_wRight > 0.01f) s_rightOk = ComputeArm(root, kRightArm, "NPC R UpperArm [RUar]", "NPC R Forearm [RLar]", "NPC R Hand [RHnd]", s_wRight, s_right);
+	if (s_wLeft > 0.01f) s_leftOk = ComputeArm(root, kLeftArm, "NPC L UpperArm [LUar]", "NPC L Forearm [LLar]", "NPC L Hand [LHnd]", s_wLeft, s_left);
+	// an arm Skyrim isn't using still rides on the torso
+	if (!s_rightOk && s_parts[kRightArm].posed) { Hand(kRightArm, s_right); s_rightOk = true; }
+	if (!s_leftOk && s_parts[kLeftArm].posed) { Hand(kLeftArm, s_left); s_leftOk = true; }
+	s_active = true;
 	if (Config::telemetry) {
 		static int s_log = 0;
-		if (s_log++ % 20 == 0) logger::info("POSE weight={:.2f} right={} left={}", s_weight, s_rightOk, s_leftOk);
+		if (s_log++ % 20 == 0) logger::info("POSE weight={:.2f} right={} left={} yaw={:.2f}", s_weight, s_rightOk, s_leftOk, s_yaw);
 	}
 }
 
-bool        Pose::Active() { return s_acting; }
-float       Pose::Weight() { return s_weight; }
-float       Pose::WeightRight() { return s_wRight; }
-float       Pose::WeightLeft() { return s_wLeft; }
+bool             Pose::Active() { return s_acting; }
+float            Pose::Weight() { return s_weight; }
+float            Pose::WeightRight() { return s_wRight; }
+float            Pose::WeightLeft() { return s_wLeft; }
+float            Pose::Yaw() { return s_yaw; }
 const Pose::Arm* Pose::Right() { return s_rightOk ? &s_right : nullptr; }
 const Pose::Arm* Pose::Left() { return s_leftOk ? &s_left : nullptr; }
 
@@ -240,22 +353,13 @@ bool Pose::Transform(int a_tri, int a_corner, float a_rel[3], float a_nrm[3])
 {
 	if (!s_active || !s_layoutOk) return false;
 	const int part = s_triParts()[a_tri];
-	const Arm* arm = nullptr;
-	int        index = 0;
-	if (part >= 7 && part <= 9 && s_rightOk) {
-		arm = &s_right;
-		index = part - 7;
-	} else if (part >= 4 && part <= 6 && s_leftOk) {
-		arm = &s_left;
-		index = part - 4;
-	}
-	if (!arm) return false;
+	if (part < 0 || part >= kParts || !s_parts[part].posed) return false;
+	const auto&  p = s_parts[part];
 	const float* lp = s_localPos() + a_tri * 9 + a_corner * 3;
 	const float* ln = s_localNrm() + a_tri * 9 + a_corner * 3;
-	const float* m = arm->m[index];
-	for (int axis = 0; axis < 3; axis++) {
-		a_rel[axis] = lp[0] * m[axis] + lp[1] * m[4 + axis] + lp[2] * m[8 + axis] + m[12 + axis];
-		a_nrm[axis] = ln[0] * m[axis] + ln[1] * m[4 + axis] + ln[2] * m[8 + axis];
-	}
-	return true;
+	const V3     pos = Apply({ lp[0], lp[1], lp[2] }, p.rot) + p.t;
+	const V3     nrm = Apply({ ln[0], ln[1], ln[2] }, p.rot);
+	a_rel[0] = pos.x; a_rel[1] = pos.y; a_rel[2] = pos.z;
+	a_nrm[0] = nrm.x; a_nrm[1] = nrm.y; a_nrm[2] = nrm.z;
+	return true;   // before the body yaw: Render turns every vertex by Yaw()
 }

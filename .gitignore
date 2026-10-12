@@ -6,3 +6,5 @@ extern/
 *.v64
 *.n64
 *.7z
+*.ttf
+plugin/data/Interface/fonts_tes64.swf

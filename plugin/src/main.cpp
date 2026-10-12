@@ -2,10 +2,12 @@
 #include "Hud.h"
 #include "Caps.h"
 #include "Config.h"
+#include "Fonts.h"
 #include "Input.h"
 #include "Mario.h"
 #include "Render.h"
 #include "Sm64.h"
+#include "Star.h"
 
 namespace
 {
@@ -40,7 +42,10 @@ namespace
 			logger::info("game loaded");
 		}
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
-			if (Sm64::Init()) Render::WriteAtlas();
+			if (Sm64::Init()) {
+				Render::WriteAtlas();
+				Star::Init();
+			}
 			Hud::InstallHook();
 			Input::Register();
 			Combat::Register();
@@ -62,6 +67,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	logger::info("TES64 loading");
 
 	Config::Load();
+	Fonts::Apply();   // before the UI reads fontconfig.txt
 	Mario::InstallHooks();
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	return true;
