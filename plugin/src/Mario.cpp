@@ -330,7 +330,17 @@ void Mario::StreamWorld(RE::PlayerCharacter* a_player, bool a_force)
 	auto cell = a_player->GetParentCell();
 	auto world = cell ? cell->GetbhkWorld() : nullptr;
 	auto pos = a_player->GetPosition();
-	if (!a_force && _streamed && world == _streamWorld && pos.GetDistance(_streamCenter) < kStreamMove) return;
+	// a door near Mario swinging open or shut changes the collision: reload when one has moved
+	static std::uint64_t s_doorSig = 0;
+	static int           s_doorTick = 0;
+	bool                 doorMoved = false;
+	if (!a_force && _streamed && (s_doorTick++ % 4) == 0) {
+		auto sig = Collision::DoorSignature(a_player, 1500.0f);
+		doorMoved = sig != s_doorSig;
+		s_doorSig = sig;
+	}
+	if (!a_force && !doorMoved && _streamed && world == _streamWorld && pos.GetDistance(_streamCenter) < kStreamMove) return;
+	if (a_force) s_doorSig = Collision::DoorSignature(a_player, 1500.0f);
 
 	std::vector<Collision::Tri> tris;
 	auto stats = Collision::Gather(cell, pos, kStreamRadius, tris);
@@ -358,8 +368,8 @@ void Mario::StreamWorld(RE::PlayerCharacter* a_player, bool a_force)
 			ny /= len;
 			(ny > 0.01 ? floors : ny < -0.01 ? ceils : walls)++;
 		}
-		logger::info("collision{}: {} bodies, {} triangles, {} surfaces ({} floors, {} walls, {} ceilings), {} unread shapes, {:.1f} ms",
-			a_force ? " (enable)" : "", stats.bodies, stats.tris, surfaces.size(), floors, walls, ceils, stats.unhandled, stats.ms);
+		logger::info("collision{}: {} bodies ({} doors), {} triangles, {} surfaces ({} floors, {} walls, {} ceilings), {} unread shapes, {:.1f} ms",
+			a_force ? " (enable)" : "", stats.bodies, stats.doors, stats.tris, surfaces.size(), floors, walls, ceils, stats.unhandled, stats.ms);
 	}
 }
 

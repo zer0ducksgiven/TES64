@@ -6,7 +6,7 @@ namespace Config
 	inline std::string   romPath;
 	inline std::uint32_t toggleKey = 0x44;       // F10 (DirectInput scan code)
 	inline std::uint32_t attackKey = 0x2F;       // V: Mario's punch/kick/dive (B)
-	inline std::uint32_t attackPad = 0x0040;     // left stick click
+	inline std::uint32_t attackPad = 0x2000;     // Xbox B
 	inline float         scale = 0.48f;          // Skyrim units per SM64 unit: Mario ends up ~0.6x an NPC's height
 
 	inline float         damageMult = 1.0f;

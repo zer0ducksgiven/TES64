@@ -238,7 +238,7 @@ namespace
 	}
 
 	// the HUD in SM64 pixels scaled to the screen: coins and stars top left, as SM64; Skyrim's three meters bottom right,
-	// POWER (health) at the corner, the stamina and magicka wedges in wooden rings to its left
+	// POWER (health) at the corner, the stamina and magicka in small head frames to its left
 	constexpr float kBlockW = 140.0f, kBlockH = 64.0f, kMargin = 6.0f;
 	std::vector<Quad> Layout(const State& a_s, float a_width, float a_height)
 	{
@@ -262,12 +262,16 @@ namespace
 		counter("coin", a_s.coins, 8);
 		counter("star", a_s.stars, 30);
 
-		// bottom right: stamina and magicka wedges in wooden rings, then the POWER meter at the corner
-		constexpr float kRing = 32.0f, kWedge = 20.0f, kInset = 6.0f;
-		bottom("wood_ring", 0, 32, kRing, kRing);
-		if (a_s.stamina > 0) bottom("pie_" + std::to_string(a_s.stamina) + "|" + kStamina.key, kInset, 32 + kInset, kWedge, kWedge);
-		bottom("wood_ring", 36, 32, kRing, kRing);
-		if (a_s.magicka > 0) bottom("pie_" + std::to_string(a_s.magicka) + "|" + kMagicka.key, 36 + kInset, 32 + kInset, kWedge, kWedge);
+		// bottom right: stamina and magicka in small copies of the POWER meter's Mario-head frame (to be given a background of
+		// their own), then the POWER meter at the corner
+		constexpr float kFrame = 38.0f, kPie = kFrame / 2.0f, kTop = 64.0f - kFrame;
+		auto miniMeter = [&](float x, int a_wedges, const char* a_key) {
+			bottom("meter_left", x, kTop, kFrame / 2.0f, kFrame);
+			bottom("meter_right", x + kFrame / 2.0f, kTop, kFrame / 2.0f, kFrame);
+			if (a_wedges > 0) bottom("pie_" + std::to_string(a_wedges) + "|" + a_key, x + kFrame / 4.0f, kTop + kFrame / 4.0f, kPie, kPie);
+		};
+		miniMeter(0, a_s.stamina, kStamina.key);
+		miniMeter(kFrame, a_s.magicka, kMagicka.key);
 		bottom("meter_left", 76, 0, 32, 64);
 		bottom("meter_right", 108, 0, 32, 64);
 		if (a_s.wedges > 0) bottom("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)) + "|health", 92, 16, 32, 32);
@@ -433,36 +437,6 @@ namespace
 	}
 }
 
-// a wooden ring for the wedges, in the POWER frame's own wood (tan to orange-brown, dark outline), tree-ring grain
-// and light from the upper left. Generated here (not from the ROM): the wedges sit inside it.
-Image MakeWoodRing()
-{
-	constexpr int N = 32;
-	Image         im{ N, N, std::vector<std::uint8_t>(N * N * 4, 0), nullptr };
-	const float   c = (N - 1) / 2.0f;
-	for (int y = 0; y < N; y++) {
-		for (int x = 0; x < N; x++) {
-			const float dx = x - c, dy = y - c;
-			const float r = std::sqrt(dx * dx + dy * dy);
-			const float ang = std::atan2(dy, dx);
-			std::uint8_t* p = &im.rgba[(y * N + x) * 4];
-			if (r > 15.6f || r < 9.2f) continue;                                // outside the ring: transparent
-			if (r > 14.6f || r < 9.8f) {                                        // the dark outline
-				p[0] = 110; p[1] = 60; p[2] = 24; p[3] = 255;
-				continue;
-			}
-			const float rings = 0.5f + 0.5f * std::sin(r * 2.1f + 0.9f * std::sin(ang * 3.0f));   // tree rings
-			const float streaks = 0.5f + 0.5f * std::sin((x + 0.45f * y) * 1.1f + 1.6f * std::sin(r * 0.9f));   // grain lines
-			const float facing = -(dx + dy) / (r * 1.4142f);                  // +1 toward the upper left
-			const float t = std::clamp(0.12f + 0.38f * rings + 0.25f * streaks + 0.25f * (0.5f + 0.5f * facing), 0.0f, 1.0f);
-			const float dark[3] = { 255, 172, 90 }, light[3] = { 255, 230, 139 };
-			for (int k = 0; k < 3; k++) p[k] = static_cast<std::uint8_t>(dark[k] + (light[k] - dark[k]) * t);
-			p[3] = 255;
-		}
-	}
-	return im;
-}
-
 bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 {
 	HMODULE dll = ::GetModuleHandleW(L"sm64.dll");
@@ -489,7 +463,6 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
 		}
 	}
-	s_images["wood_ring"] = MakeWoodRing();
 	logger::info("hud: {} graphics from the ROM", s_images.size());
 	return !s_images.empty();
 }

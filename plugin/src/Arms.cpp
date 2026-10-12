@@ -77,7 +77,7 @@ namespace
 		return nullptr;
 	}
 
-	void Follow(Held& a_held, RE::NiAVObject* a_source, RE::NiNode* a_marioRoot, const Arms::Hand& a_hand, const RE::NiPoint3& a_root)
+	void Follow(Held& a_held, RE::NiAVObject* a_source, RE::NiNode* a_marioRoot, const Arms::Hand& a_hand, const RE::NiPoint3& a_root, float a_pose)
 	{
 		if (a_source != a_held.source) {
 			if (a_held.clone && a_held.clone->parent) a_held.clone->parent->DetachChild2(a_held.clone.get());
@@ -96,8 +96,25 @@ namespace
 		// Mario's node has no rotation (Render.cpp): local = world - root
 		a_held.clone->local.translate = a_hand.pos - a_root;
 		// Skyrim's swing: the weapon as the player's own skeleton holds it; idle: the grip made from Mario's forearm
-		if (a_source && Pose::Weight() > 0.5f) a_held.clone->local.rotate = a_source->world.rotate;
-		else a_held.clone->local.rotate = a_hand.grip * Euler(Config::weaponRot[0], Config::weaponRot[1], Config::weaponRot[2]);
+		const RE::NiMatrix3 idle = a_hand.grip * Euler(Config::weaponRot[0], Config::weaponRot[1], Config::weaponRot[2]);
+		if (a_source && a_pose > 0.01f) {
+			// eased between Mario's grip and Skyrim's: each column blended, then made a proper rotation again
+			const auto& swing = a_source->world.rotate;
+			RE::NiPoint3 c[3];
+			for (int k = 0; k < 3; k++) {
+				const RE::NiPoint3 i{ idle.entry[0][k], idle.entry[1][k], idle.entry[2][k] }, s{ swing.entry[0][k], swing.entry[1][k], swing.entry[2][k] };
+				c[k] = i + (s - i) * a_pose;
+			}
+			c[0].Unitize();
+			c[1] = c[1] - c[0] * c[1].Dot(c[0]);
+			c[1].Unitize();
+			c[2] = c[0].Cross(c[1]);
+			RE::NiMatrix3 m;
+			for (int k = 0; k < 3; k++) { m.entry[0][k] = c[k].x; m.entry[1][k] = c[k].y; m.entry[2][k] = c[k].z; }
+			a_held.clone->local.rotate = m;
+		} else {
+			a_held.clone->local.rotate = idle;
+		}
 		a_held.clone->local.scale = Config::weaponScale;
 	}
 }
@@ -178,8 +195,8 @@ void Arms::Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const 
 	};
 	posed(right, Pose::Right());
 	posed(left, Pose::Left());
-	Follow(s_weapon, weapon, a_marioRoot, right, a_root);
-	Follow(s_shield, shield, a_marioRoot, left, a_root);
+	Follow(s_weapon, weapon, a_marioRoot, right, a_root, Pose::WeightRight());
+	Follow(s_shield, shield, a_marioRoot, left, a_root, Pose::WeightLeft());
 
 	// spell hand effects and projectile origins: the magic nodes onto Mario's hands
 	if (root) {

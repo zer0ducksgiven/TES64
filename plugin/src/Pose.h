@@ -23,7 +23,9 @@ namespace Pose
 	void Compute(RE::PlayerCharacter* a_player, float a_alpha);
 
 	bool        Active();   // an action is on (and a moment after): Mario faces the crosshair
-	float       Weight();   // 0 = Mario's own arms, 1 = Skyrim's
+	float       Weight();   // 0 = Mario's own arms, 1 = Skyrim's (the larger of the two arms)
+	float       WeightRight();
+	float       WeightLeft();
 	const Arm*  Right();    // nullptr when Skyrim's pose isn't showing
 	const Arm*  Left();
 

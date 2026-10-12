@@ -71,7 +71,10 @@ namespace
 
 	bool  s_acting = false;
 	float s_tail = 0.0f;
-	float s_weight = 0.0f;
+	float s_weight = 0.0f;                  // the larger of the two arms'
+	float s_wRight = 0.0f, s_wLeft = 0.0f;  // how much of Skyrim's pose each arm shows
+	float s_tailRight = 0.0f, s_tailLeft = 0.0f;
+	bool  s_actRight = false, s_actLeft = false;
 	bool  s_active = false;     // the pose is showing this frame
 
 	Pose::Arm s_right, s_left;
@@ -97,11 +100,24 @@ namespace
 	// Skyrim world (x east, y north, z up) -> SM64 (x, y up, z): the plugin's usual mapping
 	V3 ToSm64(const RE::NiPoint3& a_p) { return { a_p.x, a_p.z, -a_p.y }; }
 
-	bool ArmAction(RE::PlayerCharacter* a_player)
+	// which arms Skyrim is using: a swing is the right arm's (the left only joins for a block, a spell, a draw or sheathe),
+	// so Mario's other arm keeps swinging with his own run and jump
+	void ArmActions(RE::PlayerCharacter* a_player, bool& a_right, bool& a_left)
 	{
-		if (a_player->IsAttacking() || a_player->IsBlocking() || a_player->WhoIsCasting() != 0) return true;
 		const auto state = a_player->AsActorState()->GetWeaponState();
-		return state == RE::WEAPON_STATE::kDrawing || state == RE::WEAPON_STATE::kSheathing;
+		const bool moving = state == RE::WEAPON_STATE::kDrawing || state == RE::WEAPON_STATE::kSheathing;
+		const bool casting = a_player->WhoIsCasting() != 0;
+		const bool blocking = a_player->IsBlocking();
+		a_right = a_player->IsAttacking() || casting || moving || blocking;
+		a_left = casting || moving || blocking;
+	}
+
+	// two rotations blended and made orthonormal again
+	void Ease(float& a_w, bool a_on, float a_dt)
+	{
+		const float target = a_on ? 1.0f : 0.0f;
+		a_w += (target - a_w) * std::min(1.0f, a_dt * 14.0f);
+		if (std::abs(target - a_w) < 0.01f) a_w = target;
 	}
 
 	// one arm: the parts (shoulder, forearm, hand) at a_first.., Skyrim's bones for that side
@@ -159,7 +175,9 @@ void Pose::Reset()
 {
 	s_acting = false;
 	s_tail = 0.0f;
-	s_weight = 0.0f;
+	s_weight = s_wRight = s_wLeft = 0.0f;
+	s_actRight = s_actLeft = false;
+	s_tailRight = s_tailLeft = 0.0f;
 	s_active = false;
 	s_layoutOk = false;
 	s_rightOk = s_leftOk = false;
@@ -184,15 +202,15 @@ void Pose::OnTick(const float a_marioPos[3], int a_partCount)
 
 void Pose::Track(RE::PlayerCharacter* a_player, float a_delta)
 {
-	if (ArmAction(a_player)) {
-		s_acting = true;
-		s_tail = 0.3f;   // the animation runs a little past the game's own attack flag
-	} else if ((s_tail -= a_delta) <= 0.0f) {
-		s_acting = false;
-	}
-	const float target = s_acting ? 1.0f : 0.0f;
-	s_weight += (target - s_weight) * std::min(1.0f, a_delta * 14.0f);
-	if (std::abs(target - s_weight) < 0.01f) s_weight = target;
+	bool right, left;
+	ArmActions(a_player, right, left);
+	// the animation runs a little past the game's own attack flag
+	if (right) { s_actRight = true; s_tailRight = 0.3f; } else if ((s_tailRight -= a_delta) <= 0.0f) s_actRight = false;
+	if (left) { s_actLeft = true; s_tailLeft = 0.3f; } else if ((s_tailLeft -= a_delta) <= 0.0f) s_actLeft = false;
+	s_acting = s_actRight || s_actLeft;
+	Ease(s_wRight, s_actRight, a_delta);
+	Ease(s_wLeft, s_actLeft, a_delta);
+	s_weight = std::max(s_wRight, s_wLeft);
 }
 
 void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha)
@@ -202,8 +220,8 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha)
 	if (!s_layoutOk || s_weight <= 0.01f) return;
 	auto root = a_player->Get3D(false);
 	if (!root) return;
-	s_rightOk = ComputeArm(root, 7, "NPC R UpperArm [RUar]", "NPC R Forearm [RLar]", "NPC R Hand [RHnd]", a_alpha, s_weight, s_right);
-	s_leftOk = ComputeArm(root, 4, "NPC L UpperArm [LUar]", "NPC L Forearm [LLar]", "NPC L Hand [LHnd]", a_alpha, s_weight, s_left);
+	if (s_wRight > 0.01f) s_rightOk = ComputeArm(root, 7, "NPC R UpperArm [RUar]", "NPC R Forearm [RLar]", "NPC R Hand [RHnd]", a_alpha, s_wRight, s_right);
+	if (s_wLeft > 0.01f) s_leftOk = ComputeArm(root, 4, "NPC L UpperArm [LUar]", "NPC L Forearm [LLar]", "NPC L Hand [LHnd]", a_alpha, s_wLeft, s_left);
 	s_active = s_rightOk || s_leftOk;
 	if (Config::telemetry) {
 		static int s_log = 0;
@@ -213,6 +231,8 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha)
 
 bool        Pose::Active() { return s_acting; }
 float       Pose::Weight() { return s_weight; }
+float       Pose::WeightRight() { return s_wRight; }
+float       Pose::WeightLeft() { return s_wLeft; }
 const Pose::Arm* Pose::Right() { return s_rightOk ? &s_right : nullptr; }
 const Pose::Arm* Pose::Left() { return s_leftOk ? &s_left : nullptr; }
 

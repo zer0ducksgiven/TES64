@@ -45,6 +45,7 @@ bool Sm64::Init()
 	          Resolve(dll, load_mario_model, "tes64_load_mario_model") &
 	          Resolve(dll, rom_error, "tes64_rom_error");
 	if (!ok) return false;
+	play_sound = reinterpret_cast<decltype(play_sound)>(::GetProcAddress(dll, "sm64_ng64_play_sound"));
 
 	std::ifstream f(std::filesystem::path(Config::romPath), std::ios::binary);
 	if (Config::romPath.empty() || !f) {

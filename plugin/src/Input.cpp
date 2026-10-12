@@ -2,6 +2,12 @@
 #include "Config.h"
 #include "Mario.h"
 
+namespace
+{
+	// XInput button masks, as Skyrim reports them for a gamepad
+	constexpr std::uint32_t kPadLeftStick = 0x0040, kPadLeftShoulder = 0x0100, kPadA = 0x1000;
+}
+
 void Input::Register()
 {
 	if (auto mgr = RE::BSInputDeviceManager::GetSingleton()) {
@@ -29,6 +35,24 @@ RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE:
 		}
 		if (device != RE::INPUT_DEVICE::kKeyboard && device != RE::INPUT_DEVICE::kGamepad) continue;
 
+		if (device == RE::INPUT_DEVICE::kGamepad) {
+			// an Xbox pad, fixed to the usual layout whatever Skyrim's own bindings are: A jumps, B punches/kicks/dives
+			// (SM64's B), the left bumper or the left stick's click crouches / ground-pounds (Z). Skyrim's triggers keep
+			// attacking and casting, so the sticks, triggers, X (weapon), Y, the shoulders' shouts and the d-pad stay Skyrim's.
+			switch (code) {
+			case kPadA:
+				a = pressed;
+				break;
+			case kPadLeftShoulder:
+			case kPadLeftStick:
+				z = pressed;
+				break;
+			default:
+				if (code == Config::attackPad) b = pressed;
+				break;
+			}
+			continue;
+		}
 		auto mapped = [&](std::string_view ev) { return controlMap && controlMap->GetMappedKey(ev, device) == code; };
 		if (mapped("Jump"sv)) a = pressed;
 		else if (mapped("Sneak"sv)) z = pressed;

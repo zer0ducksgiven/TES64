@@ -25,7 +25,21 @@ namespace
 		float       reach;      // Skyrim units in front of Mario where the hit lands
 		float       radius;
 		bool        knockdown;
+		float       launch = 1.0f;   // how hard Skyrim throws the target (ragdoll): KnockExplosion magnitude
 	};
+
+	// SM64 sound ids (audio_defines.h), as libsm64 plays them
+	constexpr std::uint32_t Sound(std::uint32_t a_bank, std::uint32_t a_flags, std::uint32_t a_id, std::uint32_t a_prio)
+	{
+		return (a_bank << 28) | (a_flags << 24) | (a_id << 16) | (a_prio << 8) | (8u << 4) | 1u;
+	}
+	constexpr std::uint32_t SOUND_BOUNCE_OFF_OBJECT = Sound(0, 4, 0x59, 0xB0);
+	constexpr std::uint32_t SOUND_ACTION_HIT = Sound(0, 4, 0x44, 0xC0);
+	constexpr std::uint32_t SOUND_POUND_ROCK = Sound(3, 0, 0x56, 0x00);
+	void Play(std::uint32_t a_sound)
+	{
+		if (Config::sounds && Sm64::play_sound) Sm64::play_sound(a_sound);
+	}
 
 	const Attack* AttackFor(std::uint32_t a_action)
 	{
@@ -33,7 +47,7 @@ namespace
 		static const Attack kick{ "kick", 16.0f, 40.0f, 50.0f, true };
 		static const Attack dive{ "dive", 14.0f, 25.0f, 45.0f, true };
 		static const Attack slide{ "slidekick", 14.0f, 25.0f, 45.0f, true };
-		static const Attack pound{ "groundpound", 30.0f, 0.0f, 80.0f, true };
+		static const Attack pound{ "groundpound", 150.0f, 0.0f, 130.0f, true, 7.0f };
 		switch (a_action) {
 		case ACT_PUNCHING:
 		case ACT_MOVE_PUNCHING:
@@ -225,15 +239,19 @@ void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM6
 			const float dxy = std::hypot(pos.x - a_marioPos.x, pos.y - a_marioPos.y);
 			const bool  bodyRange = a_marioPos.z > pos.z - 20.0f && a_marioPos.z < pos.z + height;
 			const Attack* hit = nullptr;
-			Attack        stomp{ "stomp", 18.0f, 0.0f, 40.0f, false };
+			Attack        stomp{ "stomp", 18.0f, 0.0f, 40.0f, true, 3.0f };
+			static const Attack poundDrop{ "groundpound", 150.0f, 0.0f, 40.0f, true, 7.0f };
 			if (attack) {
 				auto c = a_marioPos + fwd * (attack->reach * scale);
 				// + the target's own width: Skyrim actors are wider than SM64's enemies
 				if (std::hypot(pos.x - c.x, pos.y - c.y) < (attack->radius * scale + 35.0f) && bodyRange) hit = attack;
 			}
 			if (!hit && falling && dxy < 40.0f * scale && a_marioPos.z > pos.z + height * 0.7f && a_marioPos.z < pos.z + height + 30.0f) {
-				hit = &stomp;
-				Sm64::set_mario_velocity(a_mario, a_state.velocity[0], 40.0f, a_state.velocity[2]);   // bounce off
+				// landing on a head: a ground pound hits much harder than a plain stomp; both bounce Mario off
+				const bool pounding = a_state.action == ACT_GROUND_POUND;
+				hit = pounding ? &poundDrop : &stomp;
+				Sm64::set_mario_velocity(a_mario, a_state.velocity[0], pounding ? 30.0f : 40.0f, a_state.velocity[2]);
+				Play(pounding ? SOUND_POUND_ROCK : SOUND_BOUNCE_OFF_OBJECT);
 			}
 			if (attack && !hit && Config::telemetry && s_hitThisAttack.empty()) {
 				logger::info("MISS {} actor={:08X} dxy={:.0f} dz={:.0f} h={:.0f} at=({:.0f},{:.0f},{:.0f})", attack->kind, actor->GetFormID(), dxy, a_marioPos.z - pos.z, height, pos.x, pos.y, pos.z);
@@ -244,8 +262,12 @@ void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM6
 			const float dmg = hit->damage * Config::damageMult;
 			actor->DoDamage(dmg, a_player, false);
 			if (!actor->IsHostileToActor(a_player) && !actor->IsDead()) actor->StartCombat(a_player);
-			if (auto proc = a_player->GetActorRuntimeData().currentProcess; hit->knockdown && proc) {
-				proc->KnockExplosion(actor, a_marioPos, 1.0f);
+			if (auto proc = a_player->GetActorRuntimeData().currentProcess; hit->knockdown && proc && !actor->IsDead()) {
+				// ragdoll them: thrown away from just behind them, so a head-on stomp still sends them flying forward
+				const RE::NiPoint3 from{ pos.x - fwd.x * 40.0f, pos.y - fwd.y * 40.0f, pos.z + 40.0f };
+				proc->KnockExplosion(actor, from, hit->launch);
+			} else if (!hit->knockdown) {
+				Play(SOUND_ACTION_HIT);
 			}
 			if (Config::telemetry) {
 				logger::info("HIT {} target={:08X} dmg={:.0f} health {:.0f} -> {:.0f}", hit->kind, actor->GetFormID(), dmg, before, Health(actor));

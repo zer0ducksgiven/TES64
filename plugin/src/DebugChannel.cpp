@@ -1,4 +1,5 @@
 #include "DebugChannel.h"
+#include "Collision.h"
 #include "Config.h"
 #include "Hud.h"
 #include "Reactions.h"
@@ -35,6 +36,21 @@ void DebugChannel::Poll()
 			auto caster = player ? player->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant) : nullptr;
 			if (spell && caster) caster->CastSpellImmediate(spell, false, player, 1.0f, false, 0.0f, player);
 			logger::info("debug: cast {} -> {}", arg, spell && caster ? "ok" : "no such spell");
+		} else if (cmd == "doors") {
+			// every door within 6000 units: form id, position, open state (the harness walks Mario into one)
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				tes->ForEachReferenceInRange(player, 6000.0f, [&](RE::TESObjectREFR* ref) {
+					auto base = ref->GetBaseObject();
+					if (base && base->Is(RE::FormType::Door)) {
+						auto p = ref->GetPosition();
+						logger::info("DOOR {:08X} ({:.0f},{:.0f},{:.0f}) open={}", ref->GetFormID(), p.x, p.y, p.z,
+							RE::BGSOpenCloseForm::GetOpenState(ref) == RE::BGSOpenCloseForm::OPEN_STATE::kOpen ? 1 : 0);
+					}
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			}
+		} else if (cmd == "doorbodies") {
+			Collision::LogDoorBodies(player, 6000.0f);
 		} else if (cmd == "snap") {
 			Hud::RequestSnapshot();
 			logger::info("debug: snap -> next frame");

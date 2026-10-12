@@ -26,7 +26,8 @@ settings menu). Uninstall from Windows' Installed apps.
 | Move | W A S D | relative to the camera, like SM64 |
 | Jump (A) | Space | hold for higher; triple jump, long jump (crouch + jump), wall kick, backflip... |
 | Crouch / ground pound (Z) | Sneak (Ctrl) | ground pound in the air |
-| Punch / kick / dive (B) | **V** (left stick click on a pad) | |
+| Punch / kick / dive (B) | **V** | |
+| Xbox pad | **A** jump, **B** punch/kick/dive, **LB** or left-stick click crouch / ground pound | sticks, triggers (attack / cast), X, Y, shouts and the d-pad stay Skyrim's |
 | Skyrim weapon / spell | left / right mouse | Mario turns to the crosshair and his arms play Skyrim's swing, cast or block animation (his legs and movement stay SM64's); Skyrim deals the damage |
 | Shout | Z | |
 | Activate, grab, menus | as in Skyrim | |
@@ -34,7 +35,7 @@ settings menu). Uninstall from Windows' Installed apps.
 - **Combat**: Mario's punches, kicks, dives, slide kicks, ground pounds and stomps hurt Skyrim's people and creatures
   (strong hits knock them down) and shove physics clutter. Skyrim's hits knock Mario back, SM64-style.
 - **Health**: Mario's power meter shows your Skyrim health. Falls and burns in SM64 cost Skyrim health.
-- **Meters**: your health is the POWER meter in the bottom right, its wedges red. To its left, green wedges are stamina and blue wedges magicka, in wooden rings. Skyrim's own bars are hidden while you're Mario.
+- **Meters**: your health is the POWER meter in the bottom right, its wedges red. To its left, two small copies of its Mario-head frame: green wedges are stamina, blue wedges magicka. Skyrim's own bars are hidden while you're Mario.
 - **Coins and stars**: coins are your gold (picking gold up heals, like SM64's coins), stars are completed quests.
 - **Caps**: invisibility (spell or potion) gives the Vanish Cap, the armour spells (Oakflesh...) the Metal Cap,
   Whirlwind Sprint the Wing Cap.

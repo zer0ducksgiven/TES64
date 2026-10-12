@@ -1,4 +1,5 @@
 #include "Collision.h"
+#include "Config.h"
 
 #include <chrono>
 #include <unordered_map>
@@ -212,6 +213,39 @@ namespace
 	}
 }
 
+namespace
+{
+	void VisitCollisionObjects(RE::NiAVObject* a_obj, const std::function<void(RE::NiAVObject*, RE::NiCollisionObject*)>& a_fn)
+	{
+		if (!a_obj) return;
+		if (auto col = a_obj->GetCollisionObject()) a_fn(a_obj, col);
+		if (auto node = a_obj->AsNode())
+			for (auto& child : node->GetChildren()) VisitCollisionObjects(child.get(), a_fn);
+	}
+
+	RE::hkpRigidBody* BodyOf(RE::NiCollisionObject* a_col)
+	{
+		auto bhk = skyrim_cast<RE::bhkCollisionObject*>(a_col);
+		auto body = bhk ? bhk->GetRigidBody() : nullptr;
+		return body ? static_cast<RE::hkpRigidBody*>(body->referencedObject.get()) : nullptr;
+	}
+
+	// every loaded door's rigid bodies within the radius of the player
+	void ForEachDoorBody(RE::PlayerCharacter* a_player, float a_radius, const std::function<void(const RE::hkpRigidBody*)>& a_fn)
+	{
+		auto tes = RE::TES::GetSingleton();
+		if (!tes) return;
+		tes->ForEachReferenceInRange(a_player, a_radius, [&](RE::TESObjectREFR* ref) {
+			auto base = ref->GetBaseObject();
+			if (!base || !base->Is(RE::FormType::Door)) return RE::BSContainer::ForEachResult::kContinue;
+			VisitCollisionObjects(ref->Get3D(), [&](RE::NiAVObject*, RE::NiCollisionObject* col) {
+				if (auto body = BodyOf(col)) a_fn(body);
+			});
+			return RE::BSContainer::ForEachResult::kContinue;
+		});
+	}
+}
+
 namespace Collision
 {
 	Stats Gather(RE::TESObjectCELL* a_cell, const RE::NiPoint3& a_center, float a_radius, std::vector<Tri>& a_out)
@@ -239,20 +273,18 @@ namespace Collision
 			s_cache.clear();
 			s_cacheWorld = world;
 		}
-		auto island = world->fixedIsland;
-		if (!island) return stats;
-		for (auto entity : island->entities) {
-			if (!entity) continue;
+		auto consider = [&](const hkpEntity* entity) {
+			if (!entity) return;
 			auto& collidable = entity->collidable;
-			if (!Wanted(collidable.GetCollisionLayer())) continue;
+			if (!Wanted(collidable.GetCollisionLayer())) return;
 			auto shape = collidable.shape;
-			if (!ValidShape(shape)) continue;
+			if (!ValidShape(shape)) return;
 
 			const auto& t = entity->motion.motionState.transform;
 			RE::hkAabb  box;
 			shape->GetAabbImpl(t, 0.0f, box);
 			V3 mn = Load(box.min), mx = Load(box.max);
-			if (mx.x < qlo.x || mn.x > qhi.x || mx.y < qlo.y || mn.y > qhi.y || mx.z < qlo.z || mn.z > qhi.z) continue;
+			if (mx.x < qlo.x || mn.x > qhi.x || mx.y < qlo.y || mn.y > qhi.y || mx.z < qlo.z || mn.z > qhi.z) return;
 
 			stats.bodies++;
 			auto& e = s_cache[entity];
@@ -273,9 +305,52 @@ namespace Collision
 					continue;
 				a_out.push_back(tri);
 			}
+		};
+		auto island = world->fixedIsland;
+		if (!island) return stats;
+		for (auto entity : island->entities) consider(entity);
+		// doors are keyframed bodies, which the fixed island doesn't list: found through the door references, so a
+		// closed door blocks Mario and an open one lets him through
+		if (auto player = RE::PlayerCharacter::GetSingleton()) {
+			ForEachDoorBody(player, a_radius + 500.0f, [&](const hkpRigidBody* body) {
+				const auto before = stats.bodies;
+				consider(body);
+				stats.doors += stats.bodies - before;
+			});
 		}
 		stats.tris = a_out.size();
 		stats.ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
 		return stats;
+	}
+}
+
+namespace Collision
+{
+	std::uint64_t DoorSignature(RE::PlayerCharacter* a_player, float a_radius)
+	{
+		std::uint64_t h = 1469598103934665603ull;
+		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body) {
+			const auto& t = body->motion.motionState.transform;
+			alignas(16) float f[4];
+			_mm_store_ps(f, t.rotation.col0.quad);
+			for (int i = 0; i < 3; i++) h = (h ^ static_cast<std::uint64_t>(std::lround(f[i] * 200.0f) + 1000)) * 1099511628211ull;
+			_mm_store_ps(f, t.translation.quad);
+			for (int i = 0; i < 3; i++) h = (h ^ static_cast<std::uint64_t>(std::lround(f[i] * 200.0f) + 100000)) * 1099511628211ull;
+		});
+		return h;
+	}
+
+	void LogDoorBodies(RE::PlayerCharacter* a_player, float a_radius)
+	{
+		const float toGame = 1.0f / RE::bhkWorld::GetWorldScale();
+		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body) {
+			const auto& t = body->motion.motionState.transform;
+			RE::hkAabb  box;
+			body->collidable.shape->GetAabbImpl(t, 0.0f, box);
+			V3 mn = Load(box.min), mx = Load(box.max), tr = Load(t.translation);
+			logger::info("DOORBODY at=({:.0f},{:.0f},{:.0f}) box=({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f}) layer={} shape={}",
+				tr.x * toGame, tr.y * toGame, tr.z * toGame, mn.x * toGame, mn.y * toGame, mn.z * toGame, mx.x * toGame, mx.y * toGame, mx.z * toGame,
+				static_cast<int>(body->collidable.GetCollisionLayer()), static_cast<int>(body->collidable.shape->type));
+		});
 	}
 }
