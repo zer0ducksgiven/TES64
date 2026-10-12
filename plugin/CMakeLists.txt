@@ -29,6 +29,7 @@ add_commonlibsse_plugin(TES64
 		src/Hud.cpp
 		src/Caps.cpp
 		src/Reactions.cpp
+		src/Pose.cpp
 )
 target_include_directories(TES64 PRIVATE src ../native/sm64/dist)
 target_precompile_headers(TES64 PRIVATE src/PCH.h)

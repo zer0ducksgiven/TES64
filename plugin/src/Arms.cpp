@@ -1,5 +1,6 @@
 #include "Arms.h"
 #include "Config.h"
+#include "Pose.h"
 
 namespace
 {
@@ -94,7 +95,9 @@ namespace
 		if (!a_held.clone || !a_hand.valid) return;
 		// Mario's node has no rotation (Render.cpp): local = world - root
 		a_held.clone->local.translate = a_hand.pos - a_root;
-		a_held.clone->local.rotate = a_hand.grip * Euler(Config::weaponRot[0], Config::weaponRot[1], Config::weaponRot[2]);
+		// Skyrim's swing: the weapon as the player's own skeleton holds it; idle: the grip made from Mario's forearm
+		if (a_source && Pose::Weight() > 0.5f) a_held.clone->local.rotate = a_source->world.rotate;
+		else a_held.clone->local.rotate = a_hand.grip * Euler(Config::weaponRot[0], Config::weaponRot[1], Config::weaponRot[2]);
 		a_held.clone->local.scale = Config::weaponScale;
 	}
 }
@@ -139,6 +142,12 @@ void Arms::ReadHands(const std::function<RE::NiPoint3(const float*)>& a_toSkyrim
 	s_left.grip = Grip(forearm(kLeftForearm, s_left), a_heading);
 }
 
+int Arms::PartCount()
+{
+	Resolve();
+	return s_partCount ? s_partCount() : 0;
+}
+
 const Arms::Hand& Arms::RightHand() { return s_right; }
 const Arms::Hand& Arms::LeftHand() { return s_left; }
 
@@ -159,7 +168,16 @@ void Arms::Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const 
 		if (a_prev.valid && a_cur.valid) h.pos = a_prev.pos + (a_cur.pos - a_prev.pos) * a_alpha;
 		return h;
 	};
-	const Arms::Hand right = blend(s_rightPrev, s_right), left = blend(s_leftPrev, s_left);
+	Arms::Hand right = blend(s_rightPrev, s_right), left = blend(s_leftPrev, s_left);
+	// while Skyrim's arm animation shows, the hands are where that animation put them
+	auto posed = [&](Arms::Hand& a_hand, const Pose::Arm* a_arm) {
+		if (!a_arm) return;
+		const float s = Config::scale;
+		a_hand.pos = a_root + RE::NiPoint3{ a_arm->handRel[0] * s, -a_arm->handRel[2] * s, a_arm->handRel[1] * s };
+		a_hand.valid = true;
+	};
+	posed(right, Pose::Right());
+	posed(left, Pose::Left());
 	Follow(s_weapon, weapon, a_marioRoot, right, a_root);
 	Follow(s_shield, shield, a_marioRoot, left, a_root);
 

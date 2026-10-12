@@ -1,5 +1,6 @@
 #include "Render.h"
 #include "Config.h"
+#include "Pose.h"
 
 #include <DirectXPackedVector.h>
 #include <d3d11.h>
@@ -168,12 +169,14 @@ void Render::Update(const SM64MarioGeometryBuffers& a_geo, const float* a_prevPo
 			}
 			// SM64 offset from Mario, blended between the last two ticks, then Skyrim's axes (y up -> z up, north = -z)
 			float rel[3];
-			for (int axis = 0; axis < 3; axis++) {
+			float posedNormal[3];
+			const bool posed = Pose::Transform(static_cast<int>(t), k, rel, posedNormal);   // an arm playing Skyrim's animation
+			for (int axis = 0; axis < 3 && !posed; axis++) {
 				const float cur = a_geo.position[i * 3 + axis] - a_sm64Pos[axis];
 				rel[axis] = t < a_prevTris ? std::lerp(a_prevPos[i * 3 + axis] - a_sm64Prev[axis], cur, a_alpha) : cur;
 			}
 			const RE::NiPoint3 p{ rel[0] * a_scale, -rel[2] * a_scale, rel[1] * a_scale };
-			const float* nr = &a_geo.normal[i * 3];
+			const float* nr = posed ? posedNormal : &a_geo.normal[i * 3];
 			const float  nx = nr[0], ny = -nr[2], nz = nr[1];   // SM64 (y up) -> Skyrim (z up)
 			const float* c = &a_geo.color[i * 3];
 

@@ -40,3 +40,14 @@ SM64_LIB_FN void tes64_audio_stop(void) { ng64_audio_stop(); }
 SM64_LIB_FN void tes64_audio_volume(int pct) { ng64_audio_set_volume(pct); }
 SM64_LIB_FN void tes64_lock(void) { ng64_sm64_lock(); }
 SM64_LIB_FN void tes64_unlock(void) { ng64_sm64_unlock(); }
+
+// Per-triangle body part and part-local vertices/normals (NG64's parts patch), so the plugin can pose a part itself:
+// tes64_tri_parts()[t] is the part triangle t was drawn with; positions/normals are 9 floats a triangle, before the
+// part's matrix.
+extern unsigned char g_ng64TriPart[];
+extern float g_ng64LocalPos[];
+extern float g_ng64LocalNrm[];
+
+SM64_LIB_FN const unsigned char *tes64_tri_parts(void) { return g_ng64TriPart; }
+SM64_LIB_FN const float *tes64_local_positions(void) { return g_ng64LocalPos; }
+SM64_LIB_FN const float *tes64_local_normals(void) { return g_ng64LocalNrm; }

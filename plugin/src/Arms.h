@@ -24,6 +24,7 @@ namespace Arms
 	// a_alpha blends the hands between the last two ticks, as Mario's body is (Render.cpp)
 	void Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const RE::NiPoint3& a_root, float a_alpha);
 	void Clear();
+	int  PartCount();   // body parts Mario was drawn with on the last tick
 
 	// Skyrim started an attack/cast this tick: true once per attack
 	bool SkyrimActionStarted(RE::PlayerCharacter* a_player);

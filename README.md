@@ -27,7 +27,7 @@ settings menu). Uninstall from Windows' Installed apps.
 | Jump (A) | Space | hold for higher; triple jump, long jump (crouch + jump), wall kick, backflip... |
 | Crouch / ground pound (Z) | Sneak (Ctrl) | ground pound in the air |
 | Punch / kick / dive (B) | **V** (left stick click on a pad) | |
-| Skyrim weapon / spell | left / right mouse | Mario turns to the crosshair; Skyrim deals the damage |
+| Skyrim weapon / spell | left / right mouse | Mario turns to the crosshair and his arms play Skyrim's swing, cast or block animation (his legs and movement stay SM64's); Skyrim deals the damage |
 | Shout | Z | |
 | Activate, grab, menus | as in Skyrim | |
 

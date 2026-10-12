@@ -6,6 +6,7 @@
 #include "Camera.h"
 #include "Combat.h"
 #include "Arms.h"
+#include "Pose.h"
 #include "DebugChannel.h"
 #include "Hud.h"
 #include "Caps.h"
@@ -104,6 +105,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		if (!Respawn(a_player)) return;   // the new cell's collision isn't loaded yet: try next frame
 	}
 
+	Pose::Track(a_player, a_delta);
 	_accum += a_delta;
 	if (_accum > 0.25f) _accum = kTick;   // after a hitch, don't fast-forward
 	const RE::NiPoint3 sm64Before{ _state.position[0], _state.position[1], _state.position[2] };
@@ -132,6 +134,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	float       smPos[3];
 	for (int axis = 0; axis < 3; axis++) smPos[axis] = _prevSm64[axis] + (_state.position[axis] - _prevSm64[axis]) * alpha;
 	auto pos = ToSkyrim(smPos);
+	Pose::Compute(a_player, alpha);   // Skyrim's arm animation, applied to Mario's arms for this frame
 	a_player->SetPosition(pos, true);
 	_lastSet = a_player->GetPosition();
 	_haveLastSet = true;
@@ -274,6 +277,7 @@ void Mario::SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible)
 void Mario::Disable()
 {
 	Arms::Clear();
+	Pose::Reset();
 	Render::Hide();
 	Camera::Restore();
 	SetPlayerVisible(RE::PlayerCharacter::GetSingleton(), true);
@@ -399,15 +403,9 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 		if (dx * dx + dz * dz > 1e-4f) { in.camLookX = dx; in.camLookZ = dz; }
 	}
 
-	// Skyrim swung/cast (left/right mouse): Mario turns to the crosshair and throws a punch for the animation; the
-	// hidden player's swing or spell does the damage
-	if (Arms::SkyrimActionStarted(a_player)) {
-		Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
-		if (!(_state.action & 0x00000800)) {   // grounded
-			Sm64::set_mario_action(_id, 0x00800380);   // ACT_PUNCHING
-			Combat::SuppressNextAttack();
-		}
-	}
+	// Skyrim is swinging, casting, blocking or drawing: Mario faces the crosshair and his arms play Skyrim's animation
+	// (Pose.cpp); the rest of him, his movement and his own moves stay SM64's. The hidden player does the damage.
+	if (Pose::Active()) Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
 	Caps::Tick(a_player, _id);
 	if (Sm64::lock) Sm64::lock();
 	// keep this tick's output as the one to blend from, before SM64 overwrites it
@@ -416,6 +414,7 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 	std::copy_n(_state.position, 3, _prevSm64);
 	Sm64::mario_tick(_id, &in, &_state, &_geo);
 	if (Sm64::unlock) Sm64::unlock();
+	Pose::OnTick(_state.position, Arms::PartCount());
 	Arms::ReadHands([this](const float* p) { return ToSkyrim(p); }, RE::NI_PI - _state.faceAngle);
 	Combat::Tick(a_player, _id, _state, ToSkyrim(_state.position), [this](const RE::NiPoint3& p) { return ToSm64(p); });
 }
