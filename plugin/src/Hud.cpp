@@ -32,14 +32,15 @@ namespace
 	};
 	std::unordered_map<std::string, Image> s_images;
 
-	// the colour-coded meters: each is the power meter's art, tinted (keeps SM64's shading, changes the hue)
+	// the wedges are recoloured (keeps the ROM sprite's shading, replaces its hue): health red, stamina green, magicka blue
 	struct Tint
 	{
 		const char* key;
 		std::uint8_t r, g, b;
 	};
-	constexpr Tint kStamina{ "stamina", 80, 220, 70 };    // green, as Skyrim's stamina
-	constexpr Tint kMagicka{ "magicka", 170, 90, 255 };   // violet, apart from SM64's blue power
+	constexpr Tint kHealth{ "health", 240, 50, 50 };
+	constexpr Tint kStamina{ "stamina", 60, 220, 60 };
+	constexpr Tint kMagicka{ "magicka", 40, 120, 255 };
 
 	// ---- D3D11 -----------------------------------------------------------------------------------------------
 	using Present_t = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
@@ -235,21 +236,20 @@ namespace
 		return it != s_images.end() && it->second.srv ? &it->second : nullptr;
 	}
 
-	// SM64's HUD, Skyrim's three meters in its place: POWER (health, SM64's own frame and colours), then STAMINA and
-	// MAGICKA underneath, each the same frame and wedges in its own colour with its name above, in SM64's letters.
+	// SM64's HUD with Skyrim's three meters in it: the POWER meter (health) top-left as it is, its wedges red; stamina
+	// (green) and magicka (blue) wedges underneath, with no frame and no text
 	std::vector<Quad> Layout(const State& a_s, float a_screenH)
 	{
 		std::vector<Quad> q;
 		const float s = a_screenH / 240.0f * 0.75f;   // SM64 pixels -> screen
 		const float x0 = 14 * s, y0 = 12 * s;
-		auto add = [&](const std::string& a_name, float x, float y, float w, float h, float a_v0 = 0.0f) {
-			if (auto im = Img(a_name)) q.push_back({ im, x0 + x * s, y0 + y * s, w * s, h * s, 0.0f, a_v0, 1.0f, 1.0f });
+		auto add = [&](const std::string& a_name, float x, float y, float w, float h) {
+			if (auto im = Img(a_name)) q.push_back({ im, x0 + x * s, y0 + y * s, w * s, h * s });
 		};
 
-		// row 1: POWER (the frame's own text, the health wedges)
 		add("meter_left", 0, 0, 32, 64);
 		add("meter_right", 32, 0, 32, 64);
-		if (a_s.wedges > 0) add("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)), 16, 16, 32, 32);
+		if (a_s.wedges > 0) add("pie_" + std::to_string(std::clamp(a_s.wedges, 1, 8)) + "|health", 16, 16, 32, 32);
 
 		auto counter = [&](const char* a_icon, int a_value, float y) {
 			add(a_icon, 72, y, 16, 16);
@@ -260,19 +260,10 @@ namespace
 		counter("coin", a_s.coins, 8);
 		counter("star", a_s.stars, 30);
 
-		// row 2: STAMINA and MAGICKA. The frame is cropped below its own POWER text (16 rows of 64), so the name goes
-		// there instead, in SM64's letters.
-		auto colourMeter = [&](const char* a_name, const Tint& a_tint, float a_frameX, int a_wedges) {
-			const std::string tint = a_tint.key;
-			const float       labelW = std::strlen(a_name) * 12.0f;
-			for (std::size_t i = 0; a_name[i]; i++)
-				add(std::string("letter_") + a_name[i] + "|" + tint, a_frameX + 32 - labelW / 2 + 12.0f * i, 72, 16, 16);
-			add("meter_left|" + tint, a_frameX, 88, 32, 48, 0.25f);
-			add("meter_right|" + tint, a_frameX + 32, 88, 32, 48, 0.25f);
-			if (a_wedges > 0) add("pie_" + std::to_string(std::clamp(a_wedges, 1, 8)) + "|" + tint, a_frameX + 16, 88, 32, 32);
-		};
-		colourMeter("STAMINA", kStamina, 0, a_s.stamina);
-		colourMeter("MAGICKA", kMagicka, 96, a_s.magicka);
+		// stamina and magicka: just the wedges, smaller than the POWER meter, side by side under it
+		constexpr float kWedge = 20.0f;
+		if (a_s.stamina > 0) add("pie_" + std::to_string(a_s.stamina) + "|" + kStamina.key, 10, 70, kWedge, kWedge);
+		if (a_s.magicka > 0) add("pie_" + std::to_string(a_s.magicka) + "|" + kMagicka.key, 34, 70, kWedge, kWedge);
 		return q;
 	}
 
@@ -362,9 +353,14 @@ namespace
 	{
 		Image out = a_src;
 		out.srv = nullptr;
+		// brightness relative to the sprite's own brightest pixel, so the colour comes out at full strength
+		float brightest = 0.0f;
+		for (std::size_t i = 0; i + 3 < out.rgba.size(); i += 4)
+			if (out.rgba[i + 3]) brightest = std::max(brightest, 0.3f * out.rgba[i] + 0.59f * out.rgba[i + 1] + 0.11f * out.rgba[i + 2]);
+		brightest = brightest > 0.0f ? brightest / 255.0f : 1.0f;
 		for (std::size_t i = 0; i + 3 < out.rgba.size(); i += 4) {
 			const float lum = (0.3f * out.rgba[i] + 0.59f * out.rgba[i + 1] + 0.11f * out.rgba[i + 2]) / 255.0f;
-			const float k = 0.25f + 0.75f * lum;
+			const float k = std::clamp(0.3f + 0.7f * lum / brightest, 0.0f, 1.0f);
 			out.rgba[i] = static_cast<std::uint8_t>(a_tint.r * k);
 			out.rgba[i + 1] = static_cast<std::uint8_t>(a_tint.g * k);
 			out.rgba[i + 2] = static_cast<std::uint8_t>(a_tint.b * k);
@@ -385,22 +381,17 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 	std::vector<std::string> names = { "times", "coin", "mario", "star", "meter_left", "meter_right" };
 	for (int i = 0; i <= 9; i++) names.push_back("digit_" + std::to_string(i));
 	for (int i = 1; i <= 8; i++) names.push_back("pie_" + std::to_string(i));
-	for (const char* l : { "A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "O", "P", "R", "S", "T", "U", "W", "Y" })
-		names.push_back(std::string("letter_") + l);
 	for (auto& n : names) {
 		const std::uint8_t* px = nullptr;
 		int                 w = 0, h = 0;
 		if (image(n.c_str(), &px, &w, &h)) s_images[n] = Image{ w, h, std::vector<std::uint8_t>(px, px + 4ull * w * h), nullptr };
 	}
 
-	// the meters' colour variants: the frame halves, the wedges and the lettering
-	std::vector<std::string> tintable = { "meter_left", "meter_right" };
-	for (int i = 1; i <= 8; i++) tintable.push_back("pie_" + std::to_string(i));
-	for (auto& n : names)
-		if (n.rfind("letter_", 0) == 0) tintable.push_back(n);
-	for (const Tint* t : { &kStamina, &kMagicka }) {
-		for (auto& n : tintable) {
-			auto it = s_images.find(n);
+	// the wedges in each colour (health's POWER wedges are red too)
+	for (const Tint* t : { &kHealth, &kStamina, &kMagicka }) {
+		for (int i = 1; i <= 8; i++) {
+			const std::string n = "pie_" + std::to_string(i);
+			auto              it = s_images.find(n);
 			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
 		}
 	}
