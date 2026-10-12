@@ -15,7 +15,9 @@ cp native/sm64/dist/sm64.dll "$P/TES64/"
 py -3 tools/make_mario_nif.py >/dev/null
 py -3 tools/make_esp.py >/dev/null
 # the SM64 font for Skyrim's text, from Mario64.ttf beside this script (not in the repo: the player's or the packager's own)
-if [ -f Mario64.ttf ]; then mkdir -p plugin/data/Interface && py -3 tools/make_font_swf.py Mario64.ttf plugin/data/Interface/fonts_tes64.swf Mario64 >/dev/null; fi
+rm -f plugin/data/Interface/fonts_tes64.swf
+# TES64_RELEASE=1: a build for publishing, with no SKSE / Address Library bundle and no font (neither may be redistributed)
+if [ -z "$TES64_RELEASE" ] && [ -f Mario64.ttf ]; then mkdir -p plugin/data/Interface && py -3 tools/make_font_swf.py Mario64.ttf plugin/data/Interface/fonts_tes64.swf Mario64 >/dev/null; fi
 cp -r plugin/data/meshes plugin/data/textures plugin/data/MCM plugin/data/TES64.esp dist/TES64/Data/
 if [ -f plugin/data/Interface/fonts_tes64.swf ]; then mkdir -p dist/TES64/Data/Interface && cp plugin/data/Interface/fonts_tes64.swf dist/TES64/Data/Interface/; fi
 cp README.md LICENSE dist/TES64/ 2>/dev/null || true
@@ -27,7 +29,7 @@ SZ="/c/Program Files/7-Zip/7z.exe"
 SKSE7Z="$(ls | grep -i '^Skyrim Script Extender.*7z$' | head -1)"
 SKYRIM="$(grep -o 'sSkyrimDir=.*' plugin/TES64.ini 2>/dev/null | cut -d= -f2)"
 [ -d "$SKYRIM" ] || SKYRIM="/c/Program Files (x86)/Steam/steamapps/common/Skyrim Special Edition"
-if [ -n "$SKSE7Z" ] && [ -f "$SZ" ] && ls "$SKYRIM"/Data/SKSE/Plugins/versionlib-*.bin >/dev/null 2>&1; then
+if [ -z "$TES64_RELEASE" ] && [ -n "$SKSE7Z" ] && [ -f "$SZ" ] && ls "$SKYRIM"/Data/SKSE/Plugins/versionlib-*.bin >/dev/null 2>&1; then
   mkdir -p "$R/skse" "$R/addresslib"
   T="$(mktemp -d)"; "$SZ" x -y -o"$T" "$SKSE7Z" >/dev/null
   S="$(ls -d "$T"/skse64_*)"
