@@ -427,9 +427,70 @@ void Mario::StreamWorld(RE::PlayerCharacter* a_player, bool a_force)
 			ny /= len;
 			(ny > 0.01 ? floors : ny < -0.01 ? ceils : walls)++;
 		}
-		logger::info("collision{}: {} bodies ({} doors), {} triangles, {} surfaces ({} floors, {} walls, {} ceilings), {} unread shapes, {:.1f} ms",
-			a_force ? " (enable)" : "", stats.bodies, stats.doors, stats.tris, surfaces.size(), floors, walls, ceils, stats.unhandled, stats.ms);
+		logger::info("collision{}: {} bodies ({} doors, {} big hulls), {} triangles, {} surfaces ({} floors, {} walls, {} ceilings), {} unread shapes, {:.1f} ms",
+			a_force ? " (enable)" : "", stats.bodies, stats.doors, stats.bigHulls, stats.tris, surfaces.size(), floors, walls, ceils, stats.unhandled, stats.ms);
 	}
+}
+
+// Skyrim's own physics ray, straight down at each point of a grid round the player, against the floor SM64 found there:
+// where the game's ground is above SM64's, collision went missing between Havok and libsm64
+void Mario::RayGrid(RE::PlayerCharacter* a_player, float a_radius, float a_step)
+{
+	if (!Active() || !Sm64::find_floor_height) return;
+	auto cell = a_player->GetParentCell();
+	auto bhk = cell ? cell->GetbhkWorld() : nullptr;
+	if (!bhk) return;
+	const float s = RE::bhkWorld::GetWorldScale();
+	const auto  me = a_player->GetPosition();
+	int         total = 0, missing = 0;
+	RE::BSReadLockGuard lock(bhk->worldLock);
+	for (float dx = -a_radius; dx <= a_radius; dx += a_step)
+		for (float dy = -a_radius; dy <= a_radius; dy += a_step) {
+			const float x = me.x + dx, y = me.y + dy, top = me.z + 600.0f, bottom = me.z - 1500.0f;
+			RE::bhkPickData pick;
+			pick.rayInput.from = RE::hkVector4(x * s, y * s, top * s, 0.0f);
+			pick.rayInput.to = RE::hkVector4(x * s, y * s, bottom * s, 0.0f);
+			pick.rayInput.filterInfo.SetCollisionLayer(RE::COL_LAYER::kCharController);
+			if (!bhk->PickObject(pick) || !pick.rayOutput.HasHit()) continue;
+			const float hitZ = top + (bottom - top) * pick.rayOutput.hitFraction;
+			auto        sm = ToSm64({ x, y, hitZ });
+			if (Sm64::lock) Sm64::lock();
+			const float floor = Sm64::find_floor_height(sm[0], sm[1] + 60.0f, sm[2]);
+			if (Sm64::unlock) Sm64::unlock();
+			total++;
+			const float gap = (sm[1] - floor) * Config::scale;   // Skyrim units SM64's floor is below the game's ground
+			if (floor < -1e4f || gap > 30.0f) {
+				missing++;
+				auto layer = pick.rayOutput.rootCollidable ? static_cast<int>(pick.rayOutput.rootCollidable->GetCollisionLayer()) : -1;
+				logger::info("RAYGAP at=({:.0f},{:.0f},{:.0f}) layer={} gap={:.0f}", x, y, hitZ, layer, floor < -1e4f ? 9999.0f : gap);
+			}
+		}
+	logger::info("RAYGRID {} rays hit, {} where SM64's floor is over 30 units lower", total, missing);
+}
+
+void Mario::FloorScan(RE::PlayerCharacter* a_player, float a_radius)
+{
+	if (!Active() || !Sm64::find_floor_height) return;
+	std::vector<Collision::BodyInfo> bodies;
+	Collision::Bodies(a_player, a_radius, bodies);
+	int bad = 0, total = 0;
+	for (auto& b : bodies) {
+		const float dx = b.mx.x - b.mn.x, dy = b.mx.y - b.mn.y, dz = b.mx.z - b.mn.z;
+		if (!b.wanted || dz > 250.0f || std::max(dx, dy) < 200.0f) continue;   // slabs: decks, ramps, steps
+		const RE::NiPoint3 top{ (b.mn.x + b.mx.x) / 2, (b.mn.y + b.mx.y) / 2, b.mx.z };
+		auto               sm = ToSm64(top);
+		if (Sm64::lock) Sm64::lock();
+		const float floor = Sm64::find_floor_height(sm[0], sm[1] + 60.0f, sm[2]);
+		if (Sm64::unlock) Sm64::unlock();
+		const float gap = (sm[1] - floor) * Config::scale;   // Skyrim units the floor lies below the body's top
+		total++;
+		if (floor < -1e4f || gap > 25.0f) {
+			bad++;
+			logger::info("FLOORGAP layer={} shape={} tris={} box=({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f}) gap={:.0f}", b.layer, b.shape, b.tris,
+				b.mn.x, b.mn.y, b.mn.z, b.mx.x, b.mx.y, b.mx.z, floor < -1e4f ? 9999.0f : gap);
+		}
+	}
+	logger::info("FLOORSCAN {} slabs, {} without a floor at their top", total, bad);
 }
 
 void Mario::UpdateWater(RE::PlayerCharacter* a_player)

@@ -54,12 +54,86 @@ namespace
 		return a_shape && static_cast<std::uint32_t>(a_shape->type) < static_cast<std::uint32_t>(hkpShapeType::kTotal);
 	}
 
+	inline int s_bigHulls = 0;   // convex shapes too big for the brute-force hull (telemetry)
+
+	// faces of a big convex point set (over 96 vertices: arches, bridges, rock faces), outward wound: the incremental hull -
+	// a tetrahedron, then each point that lies outside replaces the faces it sees with a cone over their horizon
+	std::vector<std::array<int, 3>> BigHull(const std::vector<V3>& p)
+	{
+		struct Face
+		{
+			int  a, b, c;
+			V3   n;
+			float d;
+			bool dead = false;
+		};
+		const int n = static_cast<int>(p.size());
+		auto sub = [](V3 a, V3 b) { return V3{ a.x - b.x, a.y - b.y, a.z - b.z }; };
+		auto dot = [](V3 a, V3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+		auto crs = [](V3 a, V3 b) { return V3{ a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; };
+		auto len = [&](V3 a) { return std::sqrt(dot(a, a)); };
+		// the starting tetrahedron: far-apart points, then the one furthest from their line, then from their plane
+		int i0 = 0, i1 = 0;
+		float best = 0;
+		for (int i = 1; i < n; i++)
+			if (float d = len(sub(p[i], p[0])); d > best) { best = d; i1 = i; }
+		if (best < 1e-6f) return {};
+		int i2 = -1;
+		best = 0;
+		for (int i = 0; i < n; i++)
+			if (float d = len(crs(sub(p[i1], p[i0]), sub(p[i], p[i0]))); d > best) { best = d; i2 = i; }
+		if (i2 < 0 || best < 1e-9f) return {};
+		const V3 nrm0 = crs(sub(p[i1], p[i0]), sub(p[i2], p[i0]));
+		int i3 = -1;
+		best = 0;
+		for (int i = 0; i < n; i++)
+			if (float d = std::abs(dot(nrm0, sub(p[i], p[i0]))); d > best) { best = d; i3 = i; }
+		if (i3 < 0 || best < 1e-9f) return {};   // all in one plane
+		const V3 centre{ (p[i0].x + p[i1].x + p[i2].x + p[i3].x) / 4, (p[i0].y + p[i1].y + p[i2].y + p[i3].y) / 4, (p[i0].z + p[i1].z + p[i2].z + p[i3].z) / 4 };
+		std::vector<Face> faces;
+		auto make = [&](int a, int b, int c) {
+			V3 nrm = crs(sub(p[b], p[a]), sub(p[c], p[a]));
+			const float l = len(nrm);
+			if (l < 1e-12f) return;
+			nrm = { nrm.x / l, nrm.y / l, nrm.z / l };
+			if (dot(nrm, sub(centre, p[a])) > 0) { std::swap(b, c); nrm = { -nrm.x, -nrm.y, -nrm.z }; }   // outward: the inside is behind it
+			faces.push_back({ a, b, c, nrm, dot(nrm, p[a]), false });
+		};
+		make(i0, i1, i2); make(i0, i1, i3); make(i0, i2, i3); make(i1, i2, i3);
+		const float eps = 1e-5f;
+		for (int i = 0; i < n; i++) {
+			if (i == i0 || i == i1 || i == i2 || i == i3) continue;
+			std::vector<int> visible;
+			for (int f = 0; f < static_cast<int>(faces.size()); f++)
+				if (!faces[f].dead && dot(faces[f].n, p[i]) - faces[f].d > eps) visible.push_back(f);
+			if (visible.empty()) continue;   // inside
+			// the horizon: directed edges of the visible faces whose reverse isn't one of theirs
+			std::vector<std::pair<int, int>> edges;
+			for (int f : visible) {
+				const auto& F = faces[f];
+				edges.push_back({ F.a, F.b }); edges.push_back({ F.b, F.c }); edges.push_back({ F.c, F.a });
+			}
+			for (int f : visible) faces[f].dead = true;
+			for (auto& e : edges) {
+				bool paired = false;
+				for (auto& r : edges)
+					if (r.first == e.second && r.second == e.first) { paired = true; break; }
+				if (!paired) make(e.first, e.second, i);
+			}
+		}
+		std::vector<std::array<int, 3>> out;
+		for (auto& f : faces)
+			if (!f.dead) out.push_back({ f.a, f.b, f.c });
+		return out;
+	}
+
 	// faces of a convex point set, outward wound (brute force: Skyrim's convex pieces are small)
 	std::vector<std::array<int, 3>> Hull(const std::vector<V3>& p)
 	{
 		std::vector<std::array<int, 3>> faces;
 		const int n = static_cast<int>(p.size());
-		if (n < 4 || n > 96) return faces;
+		if (n > 96) { s_bigHulls++; return BigHull(p); }
+		if (n < 4) return faces;
 		V3 c{ 0, 0, 0 };
 		for (auto& v : p) { c.x += v.x / n; c.y += v.y / n; c.z += v.z / n; }
 		for (int i = 0; i < n; i++)
@@ -352,6 +426,7 @@ namespace Collision
 				if (a_out.size() > before) stats.doors++;
 			});
 		}
+		stats.bigHulls = s_bigHulls;
 		stats.tris = a_out.size();
 		stats.ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
 		return stats;
@@ -386,5 +461,62 @@ namespace Collision
 				tr.x * toGame, tr.y * toGame, tr.z * toGame, mn.x * toGame, mn.y * toGame, mn.z * toGame, mx.x * toGame, mx.y * toGame, mx.z * toGame,
 				static_cast<int>(body->collidable.GetCollisionLayer()), static_cast<int>(body->collidable.shape->type));
 		});
+	}
+
+	void Bodies(RE::PlayerCharacter* a_player, float a_radius, std::vector<BodyInfo>& a_out)
+	{
+		auto cell = a_player->GetParentCell();
+		auto bhk = cell ? cell->GetbhkWorld() : nullptr;
+		auto world = bhk ? bhk->GetWorld1() : nullptr;
+		if (!world || !world->fixedIsland) return;
+		std::vector<Tri> tris;
+		Gather(cell, a_player->GetPosition(), a_radius, tris);   // fills the cache
+		const float toGame = 1.0f / RE::bhkWorld::GetWorldScale();
+		const auto  me = a_player->GetPosition();
+		for (auto entity : world->fixedIsland->entities) {
+			if (!entity || !ValidShape(entity->collidable.shape)) continue;
+			RE::hkAabb box;
+			entity->collidable.shape->GetAabbImpl(entity->motion.motionState.transform, 0.0f, box);
+			const V3 mn = Load(box.min), mx = Load(box.max);
+			if (std::hypot((mn.x + mx.x) / 2 * toGame - me.x, (mn.y + mx.y) / 2 * toGame - me.y) > a_radius) continue;
+			auto it = s_cache.find(entity);
+			a_out.push_back({ static_cast<int>(entity->collidable.GetCollisionLayer()), static_cast<int>(entity->collidable.shape->type),
+				Wanted(entity->collidable.GetCollisionLayer()), it != s_cache.end() ? it->second.tris.size() : 0,
+				{ mn.x * toGame, mn.y * toGame, mn.z * toGame }, { mx.x * toGame, mx.y * toGame, mx.z * toGame } });
+		}
+	}
+
+	void LogActiveBodies(RE::PlayerCharacter* a_player, float a_radius)
+	{
+		auto cell = a_player->GetParentCell();
+		auto bhk = cell ? cell->GetbhkWorld() : nullptr;
+		auto world = bhk ? bhk->GetWorld1() : nullptr;
+		if (!world) return;
+		const float toGame = 1.0f / RE::bhkWorld::GetWorldScale();
+		const auto  me = a_player->GetPosition();
+		int         n = 0;
+		for (auto island : world->activeSimulationIslands) {
+			if (!island) continue;
+			for (auto entity : island->entities) {
+				if (!entity || !ValidShape(entity->collidable.shape)) continue;
+				RE::hkAabb box;
+				entity->collidable.shape->GetAabbImpl(entity->motion.motionState.transform, 0.0f, box);
+				const V3 mn = Load(box.min), mx = Load(box.max);
+				if (std::hypot((mn.x + mx.x) / 2 * toGame - me.x, (mn.y + mx.y) / 2 * toGame - me.y) > a_radius) continue;
+				n++;
+				logger::info("ABODY layer={} motion={} shape={} box=({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f})", static_cast<int>(entity->collidable.GetCollisionLayer()),
+					static_cast<int>(entity->motion.type.get()), static_cast<int>(entity->collidable.shape->type), mn.x * toGame, mn.y * toGame, mn.z * toGame, mx.x * toGame, mx.y * toGame, mx.z * toGame);
+			}
+		}
+		logger::info("ABODY count={}", n);
+	}
+
+	void LogBodies(RE::PlayerCharacter* a_player, float a_radius)
+	{
+		std::vector<BodyInfo> v;
+		Bodies(a_player, a_radius, v);
+		for (auto& b : v)
+			logger::info("BODY layer={} wanted={} shape={} tris={} box=({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f})", b.layer, b.wanted ? 1 : 0, b.shape, b.tris,
+				b.mn.x, b.mn.y, b.mn.z, b.mx.x, b.mx.y, b.mx.z);
 	}
 }

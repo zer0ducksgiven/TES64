@@ -2,6 +2,7 @@
 #include "Collision.h"
 #include "Config.h"
 #include "Hud.h"
+#include "Mario.h"
 #include "Pose.h"
 #include "Reactions.h"
 #include "Star.h"
@@ -45,8 +46,8 @@ void DebugChannel::Poll()
 					auto base = ref->GetBaseObject();
 					if (base && base->Is(RE::FormType::Door)) {
 						auto p = ref->GetPosition();
-						logger::info("DOOR {:08X} ({:.0f},{:.0f},{:.0f}) open={}", ref->GetFormID(), p.x, p.y, p.z,
-							RE::BGSOpenCloseForm::GetOpenState(ref) == RE::BGSOpenCloseForm::OPEN_STATE::kOpen ? 1 : 0);
+						logger::info("DOOR {:08X} ({:.0f},{:.0f},{:.0f}) open={} name={}", ref->GetFormID(), p.x, p.y, p.z,
+							RE::BGSOpenCloseForm::GetOpenState(ref) == RE::BGSOpenCloseForm::OPEN_STATE::kOpen ? 1 : 0, std::string(ref->GetName()));
 					}
 					return RE::BSContainer::ForEachResult::kContinue;
 				});
@@ -116,6 +117,25 @@ void DebugChannel::Poll()
 					return RE::BSContainer::ForEachResult::kContinue;
 				});
 			}
+		} else if (cmd == "dumptris") {
+			// the streamed triangles within arg units of the player, Skyrim units, 9 floats each, for offline analysis
+			std::vector<Collision::Tri> tris;
+			Collision::Gather(player->GetParentCell(), player->GetPosition(), arg.empty() ? 2500.0f : std::stof(arg), tris);
+			std::ofstream out("Data/SKSE/Plugins/TES64_tris.bin", std::ios::binary);
+			for (auto& t : tris)
+				for (auto& v : t.v) {
+					const float f[3] = { v.x, v.y, v.z };
+					out.write(reinterpret_cast<const char*>(f), sizeof(f));
+				}
+			logger::info("debug: dumptris {} triangles", tris.size());
+		} else if (cmd == "raygrid") {
+			Mario::GetSingleton()->RayGrid(player, arg.empty() ? 1500.0f : std::stof(arg), 60.0f);
+		} else if (cmd == "floorscan") {
+			Mario::GetSingleton()->FloorScan(player, arg.empty() ? 1500.0f : std::stof(arg));
+		} else if (cmd == "activebodies") {
+			Collision::LogActiveBodies(player, arg.empty() ? 1500.0f : std::stof(arg));
+		} else if (cmd == "colbodies") {
+			Collision::LogBodies(player, arg.empty() ? 1500.0f : std::stof(arg));
 		} else if (cmd == "mirror") {
 			// -1: by the game (furniture, killmoves); 0 and 1 force it off and on, for the test
 			Pose::ForceMirror(std::stoi(arg));

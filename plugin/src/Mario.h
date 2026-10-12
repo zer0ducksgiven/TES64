@@ -26,6 +26,10 @@ private:
 	void Enable(RE::PlayerCharacter* a_player);
 	void Disable();
 	void StreamWorld(RE::PlayerCharacter* a_player, bool a_force);
+ public:
+	void FloorScan(RE::PlayerCharacter* a_player, float a_radius);
+	void RayGrid(RE::PlayerCharacter* a_player, float a_radius, float a_step);   // debug: Skyrim's ground vs SM64's floor   // debug: SM64's floor over each thin body vs its top
+ private:
 	RE::NiPoint3 _respawnLast;
 	float        _respawnStill = 0.0f;
 	int               _respawnWaits = 0;   // frames waited for the spawn spot's ground to load
