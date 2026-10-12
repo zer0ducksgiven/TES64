@@ -10,7 +10,8 @@ namespace
 	int (*s_partCount)() = nullptr;
 	const float* (*s_partMatrix)(int) = nullptr;
 
-	Arms::Hand s_right, s_left;
+	Arms::Hand s_right, s_left;          // this tick
+	Arms::Hand s_rightPrev, s_leftPrev;  // the tick before
 
 	struct Held
 	{
@@ -126,6 +127,8 @@ void Arms::ReadHands(const std::function<RE::NiPoint3(const float*)>& a_toSkyrim
 	if (n != kParts) {   // an unusual state (holding something, a cap in hand): keep last tick's hands
 		return;
 	}
+	s_rightPrev = s_right;
+	s_leftPrev = s_left;
 	s_right = ReadPart(kRightHand, a_toSkyrim);
 	s_left = ReadPart(kLeftHand, a_toSkyrim);
 	auto forearm = [&](int a_part, const Hand& a_hand) {
@@ -139,7 +142,7 @@ void Arms::ReadHands(const std::function<RE::NiPoint3(const float*)>& a_toSkyrim
 const Arms::Hand& Arms::RightHand() { return s_right; }
 const Arms::Hand& Arms::LeftHand() { return s_left; }
 
-void Arms::Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const RE::NiPoint3& a_root)
+void Arms::Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const RE::NiPoint3& a_root, float a_alpha)
 {
 	if (!a_marioRoot) return;
 	auto root = a_player->Get3D(false);
@@ -150,8 +153,15 @@ void Arms::Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const 
 		weapon = FirstChild(root->GetObjectByName("WEAPON"));
 		shield = FirstChild(root->GetObjectByName("SHIELD"));
 	}
-	Follow(s_weapon, weapon, a_marioRoot, s_right, a_root);
-	Follow(s_shield, shield, a_marioRoot, s_left, a_root);
+	// blended between the last two ticks, where Mario's body is
+	auto blend = [a_alpha](const Arms::Hand& a_prev, const Arms::Hand& a_cur) {
+		Arms::Hand h = a_cur;
+		if (a_prev.valid && a_cur.valid) h.pos = a_prev.pos + (a_cur.pos - a_prev.pos) * a_alpha;
+		return h;
+	};
+	const Arms::Hand right = blend(s_rightPrev, s_right), left = blend(s_leftPrev, s_left);
+	Follow(s_weapon, weapon, a_marioRoot, right, a_root);
+	Follow(s_shield, shield, a_marioRoot, left, a_root);
 
 	// spell hand effects and projectile origins: the magic nodes onto Mario's hands
 	if (root) {
@@ -165,8 +175,8 @@ void Arms::Update(RE::PlayerCharacter* a_player, RE::NiNode* a_marioRoot, const 
 			RE::NiUpdateData ctx{};
 			node->Update(ctx);
 		};
-		place("NPC R MagicNode [RMag]", s_right);
-		place("NPC L MagicNode [LMag]", s_left);
+		place("NPC R MagicNode [RMag]", right);
+		place("NPC L MagicNode [LMag]", left);
 	}
 }
 

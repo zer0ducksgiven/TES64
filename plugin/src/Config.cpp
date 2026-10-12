@@ -20,6 +20,7 @@ namespace
 		sounds = ini.GetBoolValue("Mario", "bSounds", sounds);
 		volume = std::clamp(static_cast<int>(ini.GetLongValue("Mario", "iVolume", volume)), 0, 100);
 		reactions = ini.GetBoolValue("Mario", "bNPCReactions", reactions);
+		smoothMotion = ini.GetBoolValue("Mario", "bSmoothMotion", smoothMotion);
 		if (scale <= 0.01f) scale = 0.48f;
 	}
 }

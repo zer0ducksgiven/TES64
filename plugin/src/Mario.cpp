@@ -62,8 +62,20 @@ static float CameraYaw()
 	return std::atan2(r.entry[0][1], r.entry[1][1]);
 }
 
+namespace
+{
+	// adds the time a scope takes to a counter (telemetry only, but cheap enough to always run)
+	struct ScopeCost
+	{
+		double&                                        total;
+		std::chrono::steady_clock::time_point          start = std::chrono::steady_clock::now();
+		~ScopeCost() { total += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); }
+	};
+}
+
 void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 {
+	ScopeCost cost{ _statCostMs };
 	if (Config::telemetry && !_seenUpdate) {
 		_seenUpdate = true;
 		logger::info("player update running");
@@ -94,8 +106,12 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 
 	_accum += a_delta;
 	if (_accum > 0.25f) _accum = kTick;   // after a hitch, don't fast-forward
+	const RE::NiPoint3 sm64Before{ _state.position[0], _state.position[1], _state.position[2] };
+	bool               ticked = false;
 	while (_accum >= kTick) {
 		_accum -= kTick;
+		_statTicks++;
+		ticked = true;
 		StreamWorld(a_player, false);
 		UpdateWater(a_player);
 		Tick(a_player);
@@ -110,7 +126,12 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		controller->fallTime = 0.0f;
 		controller->SetLinearVelocityImpl(RE::hkVector4(0.0f, 0.0f, 0.0f, 0.0f));
 	}
-	auto pos = ToSkyrim(_state.position);
+	// drawn between the last two ticks: the frame's own time along SM64's 30 Hz, so motion is smooth at the game's rate
+	// without adding latency (the frame is at most one tick behind the simulation)
+	const float alpha = Config::smoothMotion ? std::clamp(_accum / kTick, 0.0f, 1.0f) : 1.0f;
+	float       smPos[3];
+	for (int axis = 0; axis < 3; axis++) smPos[axis] = _prevSm64[axis] + (_state.position[axis] - _prevSm64[axis]) * alpha;
+	auto pos = ToSkyrim(smPos);
 	a_player->SetPosition(pos, true);
 	_lastSet = a_player->GetPosition();
 	_haveLastSet = true;
@@ -124,10 +145,29 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		Camera::EnsureThirdPerson();
 		// the player's body comes back after loads and race/armour changes: keep it hidden
 		SetPlayerVisible(a_player, false);
-		Render::Update(_geo, pos, [this](const float* p) { return ToSkyrim(p); }, _state.flags);
-		if (auto root = Render::Root()) Arms::Update(a_player, root->AsNode(), pos);
+		// smooth: every frame; stepping (the old way): only when SM64 has a new tick
+		if (Config::smoothMotion || ticked) {
+			Render::Update(_geo, _prevGeoPos.data(), _prevTris, _state.position, _prevSm64, alpha, pos, Config::scale, _state.flags);
+			if (auto root = Render::Root()) Arms::Update(a_player, root->AsNode(), pos, alpha);
+		}
 	}
 
+	if (Config::telemetry) {
+		// a frame where SM64 says Mario is moving but the player hasn't moved since last frame is a visible stall
+		_statFrames++;
+		const RE::NiPoint3 now = a_player->GetPosition();
+		const float        moved = now.GetDistance(_statPrevPlayer);
+		// Mario really moved in SM64 this frame (not a wall push) but the player's world position didn't
+		if (ticked) _statMoving = std::hypot(_state.position[0] - sm64Before.x, _state.position[2] - sm64Before.z) > 1.0f;
+		if (_statMoving && moved < 1e-3f) _statStalls++;
+		_statPrevPlayer = now;
+		if ((_statTimer += a_delta) >= 1.0f) {
+			logger::info("STAT frames={} ticks={} stalls={} cost={:.3f}ms", _statFrames, _statTicks, _statStalls, _statCostMs / std::max(1, _statFrames));
+			_statTimer = 0.0f;
+			_statFrames = _statTicks = _statStalls = 0;
+			_statCostMs = 0.0;
+		}
+	}
 	if (Config::telemetry && (_telemetryTimer += a_delta) >= 0.1f) {
 		_telemetryTimer = 0.0f;
 		auto p = a_player->GetPosition();
@@ -152,6 +192,7 @@ bool Mario::Respawn(RE::PlayerCharacter* a_player)
 	Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
 	_state = {};
 	_state.position[1] = 20.0f / Config::scale;
+	ResetPrev();
 	_respawnPending = false;
 	_haveLastSet = false;
 	_accum = 0.0f;
@@ -190,6 +231,10 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 	_geoColor.assign(3 * n, 0.0f);
 	_geoUv.assign(2 * n, 0.0f);
 	_geo = { _geoPos.data(), _geoNormal.data(), _geoColor.data(), _geoUv.data(), 0 };
+	_prevGeoPos.assign(_geoPos.size(), 0.0f);
+	_state = {};
+	_state.position[1] = 20.0f / Config::scale;
+	ResetPrev();
 	_accum = 0.0f;
 	Combat::Reset();
 
@@ -326,6 +371,12 @@ void Mario::UpdateWater(RE::PlayerCharacter* a_player)
 	Sm64::set_mario_water_level(_id, static_cast<int>(level <= -1e6f ? -1000000 : sm[1]));
 }
 
+void Mario::ResetPrev()
+{
+	std::copy_n(_state.position, 3, _prevSm64);
+	_prevTris = 0;
+}
+
 void Mario::Tick(RE::PlayerCharacter* a_player)
 {
 	auto input = Input::GetSingleton();
@@ -359,6 +410,10 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 	}
 	Caps::Tick(a_player, _id);
 	if (Sm64::lock) Sm64::lock();
+	// keep this tick's output as the one to blend from, before SM64 overwrites it
+	std::copy_n(_geoPos.data(), _prevGeoPos.size(), _prevGeoPos.data());
+	_prevTris = _geo.numTrianglesUsed;
+	std::copy_n(_state.position, 3, _prevSm64);
 	Sm64::mario_tick(_id, &in, &_state, &_geo);
 	if (Sm64::unlock) Sm64::unlock();
 	Arms::ReadHands([this](const float* p) { return ToSkyrim(p); }, RE::NI_PI - _state.faceAngle);

@@ -30,12 +30,23 @@ private:
 	static void SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible);
 	bool Respawn(RE::PlayerCharacter* a_player);
 	void Tick(RE::PlayerCharacter* a_player);
+	void ResetPrev();   // the last tick before this one = the current one (spawn, respawn): nothing to blend from
 
 	std::atomic<bool>    _toggleRequested{ false };
 	std::int32_t         _id = -1;
 	RE::NiPoint3         _origin;
 	float                _accum = 0.0f;
 	float                _telemetryTimer = 0.0f;
+	// smoothness stats (telemetry): frames drawn, SM64 ticks, and frames where Mario moved but the player didn't
+	float                _statTimer = 0.0f;
+	int                  _statFrames = 0, _statTicks = 0, _statStalls = 0;
+	double               _statCostMs = 0.0;   // time spent in Mario::Update this second
+	RE::NiPoint3         _statPrevPlayer;
+	bool                 _statMoving = false;   // SM64 moved Mario on the last tick
+	// the tick before the current one, for blending the frames in between (SM64 runs at 30 Hz, the game at 60)
+	float                _prevSm64[3]{};
+	std::uint32_t        _prevTris = 0;
+	std::vector<float>   _prevGeoPos;
 	bool                 _seenUpdate = false;
 	std::optional<float> _savedGravity;
 	RE::NiPoint3         _streamCenter;

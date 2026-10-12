@@ -143,7 +143,8 @@ bool Render::Visible() { return s_attached; }
 RE::NiAVObject* Render::Root() { return s_root.get(); }
 std::uint32_t Render::TrianglesDrawn() { return s_drawn; }
 
-void Render::Update(const SM64MarioGeometryBuffers& a_geo, const RE::NiPoint3& a_root, const std::function<RE::NiPoint3(const float*)>& a_toSkyrim, std::uint32_t a_flags)
+void Render::Update(const SM64MarioGeometryBuffers& a_geo, const float* a_prevPos, std::uint32_t a_prevTris,
+	const float a_sm64Pos[3], const float a_sm64Prev[3], float a_alpha, const RE::NiPoint3& a_root, float a_scale, std::uint32_t a_flags)
 {
 	const bool metal = a_flags & 0x04, vanish = a_flags & 0x02;
 	if (!s_attached || !s_root) return;
@@ -165,7 +166,13 @@ void Render::Update(const SM64MarioGeometryBuffers& a_geo, const RE::NiPoint3& a
 				d = Vertex{};
 				continue;
 			}
-			auto p = a_toSkyrim(&a_geo.position[i * 3]) - a_root;
+			// SM64 offset from Mario, blended between the last two ticks, then Skyrim's axes (y up -> z up, north = -z)
+			float rel[3];
+			for (int axis = 0; axis < 3; axis++) {
+				const float cur = a_geo.position[i * 3 + axis] - a_sm64Pos[axis];
+				rel[axis] = t < a_prevTris ? std::lerp(a_prevPos[i * 3 + axis] - a_sm64Prev[axis], cur, a_alpha) : cur;
+			}
+			const RE::NiPoint3 p{ rel[0] * a_scale, -rel[2] * a_scale, rel[1] * a_scale };
 			const float* nr = &a_geo.normal[i * 3];
 			const float  nx = nr[0], ny = -nr[2], nz = nr[1];   // SM64 (y up) -> Skyrim (z up)
 			const float* c = &a_geo.color[i * 3];
@@ -226,13 +233,13 @@ void Render::Update(const SM64MarioGeometryBuffers& a_geo, const RE::NiPoint3& a
 		}
 	}
 
-	// the parent is the player's root: place Mario in its space (vertices are already world-axis-aligned)
+	// the vertices are offsets from Mario's position and the player's node sits exactly there, so the node itself
+	// needs no offset (the parent's world transform is last frame's until the scene updates: an offset from it lags)
 	if (auto parent = s_root->parent) {
 		const auto& pw = parent->world;
-		const auto  inv = pw.rotate.Transpose();
 		const float s = pw.scale != 0.0f ? pw.scale : 1.0f;
-		s_root->local.rotate = inv;
-		s_root->local.translate = (inv * (a_root - pw.translate)) / s;
+		s_root->local.rotate = pw.rotate.Transpose();
+		s_root->local.translate = RE::NiPoint3{};
 		s_root->local.scale = 1.0f / s;
 	}
 	RE::NiUpdateData ctx{};

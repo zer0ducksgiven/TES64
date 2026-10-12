@@ -15,7 +15,10 @@ namespace Render
 
 	// a_toSkyrim maps an SM64 position to Skyrim space; a_root is where the node sits (Mario's position)
 	// a_flags: libsm64's Mario flags (Metal/Vanish caps change how he's drawn)
-	void Update(const SM64MarioGeometryBuffers& a_geo, const RE::NiPoint3& a_root, const std::function<RE::NiPoint3(const float*)>& a_toSkyrim, std::uint32_t a_flags);
+	// Drawn between the last two SM64 ticks: each vertex is blended between its previous and current place, relative to
+	// Mario's own position (a_alpha 0 = previous tick, 1 = current). a_root is Mario's interpolated Skyrim position.
+	void Update(const SM64MarioGeometryBuffers& a_geo, const float* a_prevPos, std::uint32_t a_prevTris,
+		const float a_sm64Pos[3], const float a_sm64Prev[3], float a_alpha, const RE::NiPoint3& a_root, float a_scale, std::uint32_t a_flags);
 
 	bool Visible();
 	RE::NiAVObject* Root();   // Mario's node (under the player's root)
