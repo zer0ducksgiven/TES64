@@ -22,6 +22,7 @@ void Config::Load()
 	weaponRot[2] = static_cast<float>(ini.GetDoubleValue("Mario", "fWeaponRotZ", weaponRot[2]));
 	sounds = ini.GetBoolValue("Mario", "bSounds", sounds);
 	volume = static_cast<int>(ini.GetLongValue("Mario", "iVolume", volume));
+	reactions = ini.GetBoolValue("Mario", "bNPCReactions", reactions);
 	telemetry = ini.GetBoolValue("Debug", "bTelemetry", false);
 	renderTest = static_cast<int>(ini.GetLongValue("Debug", "iRenderTest", 0));
 	if (scale <= 0.01f) scale = 0.48f;

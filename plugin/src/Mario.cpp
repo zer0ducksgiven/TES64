@@ -9,6 +9,7 @@
 #include "DebugChannel.h"
 #include "Hud.h"
 #include "Caps.h"
+#include "Reactions.h"
 
 namespace
 {
@@ -83,6 +84,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 
 	auto ui = RE::UI::GetSingleton();
 	if (ui && ui->GameIsPaused()) return;   // menus stop Mario with the game
+	Reactions::Tick(a_player, a_delta);
 
 	// Skyrim moved the player (a door, fast travel, coc, a script): Mario follows instead of dragging them back
 	if (_haveLastSet && a_player->GetPosition().GetDistance(_lastSet) > 300.0f) _respawnPending = true;
