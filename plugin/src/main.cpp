@@ -9,13 +9,16 @@
 
 namespace
 {
-	// [Debug] bTelemetry: menu opens/closes in the log, for the UAT harness
+	// menu opens/closes in the log ([Debug] bTelemetry, for the UAT harness); MCM settings re-read when the
+	// Journal (where SkyUI's MCM lives) closes
 	class MenuLog : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 	{
 	public:
 		RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
 		{
-			if (a_event) logger::info("menu {} {}", a_event->opening ? "open" : "close", a_event->menuName.c_str());
+			if (!a_event) return RE::BSEventNotifyControl::kContinue;
+			if (!a_event->opening && a_event->menuName == RE::JournalMenu::MENU_NAME) Config::LoadMcm();
+			if (Config::telemetry) logger::info("menu {} {}", a_event->opening ? "open" : "close", a_event->menuName.c_str());
 			return RE::BSEventNotifyControl::kContinue;
 		}
 	};
@@ -42,9 +45,11 @@ namespace
 			Input::Register();
 			Combat::Register();
 			Caps::Register();
-			if (Config::telemetry) {
-				static MenuLog menuLog;
-				RE::UI::GetSingleton()->AddEventSink<RE::MenuOpenCloseEvent>(&menuLog);
+			static MenuLog menuLog;
+			RE::UI::GetSingleton()->AddEventSink<RE::MenuOpenCloseEvent>(&menuLog);
+			if (auto data = RE::TESDataHandler::GetSingleton()) {
+				const bool mcm = data->LookupForm(0x800, "TES64.esp") != nullptr;
+				logger::info("mcm: TES64.esp {}", mcm ? "loaded (its menu needs SkyUI + MCM Helper)" : "not loaded");
 			}
 		}
 	}

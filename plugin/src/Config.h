@@ -19,4 +19,5 @@ namespace Config
 	inline int           renderTest = 0;         // [Debug] iRenderTest: 1 = draw a test cube instead of Mario      // [Debug] bTelemetry: state lines in TES64.log, for the UAT harness
 
 	void Load();
+	void LoadMcm();   // MCM Helper's saved settings (Data/MCM/Settings/TES64.ini), after the Journal closes
 }

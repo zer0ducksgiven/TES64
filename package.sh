@@ -13,7 +13,8 @@ cp plugin/build/release/TES64.dll "$P/"
 cp plugin/TES64.ini "$P/"
 cp native/sm64/dist/sm64.dll "$P/TES64/"
 py -3 tools/make_mario_nif.py >/dev/null
-cp -r plugin/data/meshes plugin/data/textures dist/TES64/Data/
+py -3 tools/make_esp.py >/dev/null
+cp -r plugin/data/meshes plugin/data/textures plugin/data/MCM plugin/data/TES64.esp dist/TES64/Data/
 cp README.md LICENSE dist/TES64/ 2>/dev/null || true
 
 ISCC=""

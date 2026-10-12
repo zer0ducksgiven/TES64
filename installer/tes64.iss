@@ -40,7 +40,9 @@ Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.dll"; DestDir: "{app}\Data\SKSE\P
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64\sm64.dll"; DestDir: "{app}\Data\SKSE\Plugins\TES64"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.ini"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#Dist}\TES64\Data\meshes\TES64\*"; DestDir: "{app}\Data\meshes\TES64"; Flags: ignoreversion
-Source: "{#Dist}\TES64\Data	extures\TES64\*"; DestDir: "{app}\Data	extures\TES64"; Flags: ignoreversion
+Source: "{#Dist}\TES64\Data\textures\TES64\*"; DestDir: "{app}\Data\textures\TES64"; Flags: ignoreversion
+Source: "{#Dist}\TES64\Data\TES64.esp"; DestDir: "{app}\Data"; Flags: ignoreversion
+Source: "{#Dist}\TES64\Data\MCM\Config\TES64\*"; DestDir: "{app}\Data\MCM\Config\TES64"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{localappdata}\TES64"; Flags: ignoreversion
 
 [INI]
@@ -49,9 +51,11 @@ Filename: "{app}\Data\SKSE\Plugins\TES64.ini"; Section: "General"; Key: "sRomPat
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\Data\SKSE\Plugins\TES64"
 ; mario.dds is written by the plugin from the ROM at runtime
-Type: filesandordirs; Name: "{app}\Data	extures\TES64"
+Type: filesandordirs; Name: "{app}\Data\textures\TES64"
 Type: filesandordirs; Name: "{app}\Data\meshes\TES64"
 Type: filesandordirs; Name: "{localappdata}\TES64"
+Type: files; Name: "{app}\Data\TES64.esp"
+Type: filesandordirs; Name: "{app}\Data\MCM\Config\TES64"
 
 [Code]
 const
@@ -155,6 +159,42 @@ begin
   Result := ExpandConstant('{localappdata}\TES64\sm64.us') + RomExt;
 end;
 
+// ---- load order ------------------------------------------------------------------------------------------------
+
+function PluginsTxt(): String;
+begin
+  Result := ExpandConstant('{localappdata}') + '\Skyrim Special Edition\Plugins.txt';
+end;
+
+// TES64.esp (the MCM quest, ESL-flagged) enabled in Skyrim's load order, or taken out of it
+procedure SetPluginEnabled(Enable: Boolean);
+var
+  Lines: TArrayOfString;
+  Kept: TStringList;
+  I: Integer;
+  Name: String;
+begin
+  Kept := TStringList.Create;
+  try
+    if LoadStringsFromFile(PluginsTxt(), Lines) then
+      for I := 0 to GetArrayLength(Lines) - 1 do
+      begin
+        Name := Lowercase(Trim(Lines[I]));
+        if (Name <> 'tes64.esp') and (Name <> '*tes64.esp') then Kept.Add(Lines[I]);
+      end;
+    if Enable then Kept.Add('*TES64.esp');
+    ForceDirectories(ExtractFileDir(PluginsTxt()));
+    Kept.SaveToFile(PluginsTxt());
+  finally
+    Kept.Free;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then SetPluginEnabled(False);
+end;
+
 // ---- wizard ----------------------------------------------------------------------------------------------------
 
 procedure InitializeWizard();
@@ -203,6 +243,7 @@ begin
     ForceDirectories(ExpandConstant('{localappdata}\TES64'));
   if CurStep = ssPostInstall then
   begin
+    SetPluginEnabled(True);
     Dest := GetRomDest('');
     if not FileCopy(RomPage.Values[0], Dest, False) then
       SuppressibleMsgBox('Your ROM couldn''t be copied to ' + Dest + '. Copy it there yourself, or run the installer again.', mbError, MB_OK, IDOK);
