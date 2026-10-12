@@ -4,7 +4,9 @@
 ;    the game ships with TES64, the plugin reads Mario, his textures and sounds from it
 ;  - finds Skyrim Special Edition (Bethesda's registry key, then Steam), or lets the player pick it
 ;  - installs the SKSE plugin into Data\SKSE\Plugins, and copies the ROM to %LOCALAPPDATA%\TES64
-;  - warns if SKSE or Address Library aren't installed (both needed; neither can be shipped with TES64)
+;  - warns if SKSE or Address Library aren't installed (both needed). A package.sh build with those sources on hand
+;    (the SKSE .7z in the repo root, Address Library bins in the installed Skyrim) bundles them as a private TEST build:
+;    neither mod's licence allows redistributing them, so don't publish that installer
 
 #define AppName "TES64"
 #ifndef AppVersion
@@ -36,6 +38,13 @@ WelcomeLabel2=This will install TES64, which lets you play as Mario in Skyrim Sp
 SelectDirLabel3=Choose your Skyrim Special Edition folder (the one with SkyrimSE.exe in it).
 
 [Files]
+#ifdef Bundle
+; test bundle (package.sh): SKSE64 and Address Library, never over a copy already there
+Source: "{#Dist}\TES64\redist\skse\*.dll"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#Dist}\TES64\redist\skse\skse64_loader.exe"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#Dist}\TES64\redist\skse\Scripts\*"; DestDir: "{app}\Data\Scripts"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#Dist}\TES64\redist\addresslib\*"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: onlyifdoesntexist uninsneveruninstall
+#endif
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.dll"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64\sm64.dll"; DestDir: "{app}\Data\SKSE\Plugins\TES64"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.ini"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: onlyifdoesntexist uninsneveruninstall
@@ -60,6 +69,11 @@ Type: filesandordirs; Name: "{app}\Data\MCM\Config\TES64"
 [Code]
 const
   ROM_SIZE = 8388608;
+#ifdef Bundle
+  HaveBundle = True;
+#else
+  HaveBundle = False;
+#endif
 
 var
   RomPage: TInputFileWizardPage;
@@ -224,7 +238,7 @@ begin
       MsgBox('SkyrimSE.exe isn''t in that folder. Choose your Skyrim Special Edition folder.', mbError, MB_OK);
       Result := False;
     end
-    else if not FileExists(AddBackslash(WizardDirValue) + 'skse64_loader.exe') then
+    else if not HaveBundle and not FileExists(AddBackslash(WizardDirValue) + 'skse64_loader.exe') then
       SuppressibleMsgBox('SKSE64 doesn''t seem to be installed in this folder. TES64 needs it: get it from skse.silverlock.org, and start Skyrim with skse64_loader.exe.', mbInformation, MB_OK, IDOK);
   end;
 end;
