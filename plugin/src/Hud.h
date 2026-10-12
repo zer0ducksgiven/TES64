@@ -7,6 +7,7 @@ namespace Hud
 {
 	bool Init(const std::uint8_t* a_rom, std::size_t a_len);   // pull the graphics from the ROM
 	void InstallHook();
+	void DumpFlash();   // debug: the HUD movie's clips in the log
 	void RequestSnapshot();                                       // telemetry: the next frame is written to TES64_snap.bmp                                          // the swap chain's Present
 
 	// main thread, every frame

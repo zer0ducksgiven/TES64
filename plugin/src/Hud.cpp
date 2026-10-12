@@ -22,6 +22,8 @@ namespace
 		int  stars = 0;
 		float heading = 0.0f;   // the camera's, radians: 0 north, + clockwise (east)
 		bool compass = false;
+		// where Skyrim's compass is on screen (pixels; x1 <= x0: not found): Mario's is drawn there, under its markers
+		float compassX0 = 0.0f, compassX1 = 0.0f, compassY = 0.0f, compassPerRadian = 0.0f;
 	};
 	std::mutex s_lock;
 	State      s_state;
@@ -301,26 +303,44 @@ namespace
 		miniMeter(66, a_s.magicka, kMagicka.key, "MAGIKA");
 		miniMeter(66 + kFrame + 2, a_s.stamina, kStamina.key, "STAMINA");
 
-		// the compass, top centre: a wooden bar in the POWER frame's wood, SM64's letters for the four points sliding
-		// past as the camera turns (90 degrees either side shown), coins for the in-between points
-		if (a_s.compass) {
-			constexpr float kBarW = 176.0f, kBarH = 20.0f, kHalf = RE::NI_HALF_PI;
-			const float     ox = (a_width - kBarW * s) / 2, oy = kMargin * s;
-			add("compass_bar", ox, oy, 0, 0, kBarW, kBarH);
-			static const struct { const char* name; float angle; float size; } points[] = {
-				{ "letter_N", 0.0f, 14 }, { "letter_E", RE::NI_HALF_PI, 14 }, { "letter_S", RE::NI_PI, 14 }, { "letter_W", -RE::NI_HALF_PI, 14 },
-				{ "coin", RE::NI_PI / 4, 8 }, { "coin", 3 * RE::NI_PI / 4, 8 }, { "coin", -RE::NI_PI / 4, 8 }, { "coin", -3 * RE::NI_PI / 4, 8 },
-			};
-			for (auto& p : points) {
-				float rel = p.angle - a_s.heading;
-				while (rel > RE::NI_PI) rel -= RE::NI_TWO_PI;
-				while (rel < -RE::NI_PI) rel += RE::NI_TWO_PI;
-				if (std::abs(rel) > kHalf * 0.92f) continue;
-				const float x = kBarW / 2 + rel / kHalf * (kBarW / 2 - 10) - p.size / 2;
-				add(p.name, ox, oy, x, (kBarH - p.size) / 2, p.size, p.size);
-			}
-			add("compass_pointer", ox, oy, kBarW / 2 - 4, kBarH - 3, 8, 6);   // where the camera looks
+		return q;
+	}
+
+	// the compass, where Skyrim's was (its frame and letters hidden, its markers kept and drawn over this): a thin wooden
+	// bar in the POWER frame's wood, SM64's letters for the four points sliding past as the camera turns, coins for the
+	// in-between points. Spaced as Skyrim's compass is, so its markers line up.
+	std::vector<Quad> CompassLayout(const State& a_s, float a_width, float a_height)
+	{
+		std::vector<Quad> q;
+		if (!a_s.compass) return q;
+		const float s = a_height / 240.0f * 0.75f * Config::hudScale;
+		constexpr float kBarH = 12.0f;
+		float x0 = (a_width - 176.0f * s) / 2, x1 = x0 + 176.0f * s, yc = (kMargin + kBarH / 2) * s;
+		float perRadian = (x1 - x0) / 2 / RE::NI_HALF_PI;
+		if (a_s.compassX1 > a_s.compassX0 + 20.0f) {
+			x0 = a_s.compassX0;
+			x1 = a_s.compassX1;
+			yc = a_s.compassY;
+			if (a_s.compassPerRadian > 0) perRadian = a_s.compassPerRadian;   // Skyrim's own scale: its markers line up
 		}
+		const float barW = x1 - x0, barH = kBarH * s, top = yc - barH / 2;
+		auto put = [&](const char* a_name, float x, float y, float w, float h) {
+			if (auto im = Img(a_name)) q.push_back({ im, x, y, w, h });
+		};
+		put("compass_bar", x0, top, barW, barH);
+		static const struct { const char* name; float angle; float size; } points[] = {
+			{ "letter_N", 0.0f, 11 }, { "letter_E", RE::NI_HALF_PI, 11 }, { "letter_S", RE::NI_PI, 11 }, { "letter_W", -RE::NI_HALF_PI, 11 },
+			{ "coin", RE::NI_PI / 4, 6 }, { "coin", 3 * RE::NI_PI / 4, 6 }, { "coin", -RE::NI_PI / 4, 6 }, { "coin", -3 * RE::NI_PI / 4, 6 },
+		};
+		for (auto& p : points) {
+			float rel = p.angle - a_s.heading;
+			while (rel > RE::NI_PI) rel -= RE::NI_TWO_PI;
+			while (rel < -RE::NI_PI) rel += RE::NI_TWO_PI;
+			const float cx = x0 + barW / 2 + rel * perRadian, sz = p.size * s;
+			if (cx - sz / 2 < x0 + 4 * s || cx + sz / 2 > x1 - 4 * s) continue;
+			put(p.name, cx - sz / 2, yc - sz / 2, sz, sz);
+		}
+		put("compass_pointer", x0 + barW / 2 - 4 * s, top + barH - 2 * s, 8 * s, 6 * s);
 		return q;
 	}
 
@@ -382,8 +402,59 @@ namespace
 		back->Release();
 	}
 
+	IDXGISwapChain* s_swap = nullptr;
+
+	// Skyrim's compass frame on screen: its bounds on the stage (ActionScript getBounds), then the stage's visible
+	// rectangle onto the back buffer
+	// Skyrim's compass strip scrolls 174.4 stage units per radian the camera turns (measured, hudmenu.swf)
+	constexpr float kCompassStagePerRadian = 174.4f;
+
+	bool CompassOnScreen(float& a_x0, float& a_x1, float& a_y, float& a_perRadian)
+	{
+		auto ui = RE::UI::GetSingleton();
+		auto menu = ui ? ui->GetMenu<RE::HUDMenu>() : nullptr;
+		if (!menu || !menu->uiMovie || !s_backWidth) return false;
+		auto& rd = menu->GetRuntimeData();
+		if (!rd.health || !rd.health->root.IsDisplayObject()) return false;
+		RE::GFxValue holder, compass, frame, stage, bounds;
+		if (!rd.health->root.GetMember("CompassShoutMeterHolder", &holder) || !holder.GetMember("Compass", &compass) || !compass.GetMember("CompassFrame", &frame)) return false;
+		if (!menu->uiMovie->GetVariable(&stage, "_root")) return false;
+		if (!frame.Invoke("getBounds", &bounds, &stage, 1) || !bounds.IsObject()) return false;
+		RE::GFxValue xMin, xMax, yMin, yMax;
+		bounds.GetMember("xMin", &xMin); bounds.GetMember("xMax", &xMax); bounds.GetMember("yMin", &yMin); bounds.GetMember("yMax", &yMax);
+		if (!xMin.IsNumber() || !xMax.IsNumber()) return false;
+		const auto vis = menu->uiMovie->GetVisibleFrameRect();
+		const float vw = vis.right - vis.left, vh = vis.bottom - vis.top;
+		if (vw <= 0 || vh <= 0) return false;
+		auto sx = [&](double x) { return static_cast<float>((x - vis.left) / vw * s_backWidth); };
+		auto sy = [&](double y) { return static_cast<float>((y - vis.top) / vh * s_backHeight); };
+		a_x0 = sx(xMin.GetNumber());
+		a_x1 = sx(xMax.GetNumber());
+		a_y = (sy(yMin.GetNumber()) + sy(yMax.GetNumber())) / 2;
+		a_perRadian = kCompassStagePerRadian / vw * s_backWidth;
+		return a_x1 > a_x0;
+	}
+
+	// the HUD menu's own draw: Mario's compass goes on first, so Skyrim's markers come out on top of it
+	struct HudDisplayHook
+	{
+		static void PostDisplay(RE::HUDMenu* a_this)
+		{
+			State st;
+			{
+				std::scoped_lock l(s_lock);
+				st = s_state;
+			}
+			if (st.show && st.compass && s_gpuReady && s_swap && s_backWidth)
+				Draw(s_swap, CompassLayout(st, static_cast<float>(s_backWidth), static_cast<float>(s_backHeight)));
+			original(a_this);
+		}
+		static inline REL::Relocation<decltype(PostDisplay)> original;
+	};
+
 	HRESULT STDMETHODCALLTYPE PresentHook(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 	{
+		s_swap = a_swap;
 		State st;
 		{
 			std::scoped_lock l(s_lock);
@@ -464,6 +535,20 @@ namespace
 		return true;
 	}
 
+	// debug: the display objects under a clip, a few levels down, with where they sit
+	void Dump(const RE::GFxValue& a_clip, const std::string& a_path, int a_depth)
+	{
+		RE::GFxValue copy = a_clip;
+		copy.VisitMembers([&](const char* a_name, const RE::GFxValue& a_val) {
+			if (!a_val.IsDisplayObject()) return;
+			RE::GFxValue::DisplayInfo info;
+			RE::GFxValue              v = a_val;
+			v.GetDisplayInfo(&info);
+			logger::info("FLASH {}.{} x={:.0f} y={:.0f} w? vis={}", a_path, a_name, info.GetX(), info.GetY(), info.GetVisible() ? 1 : 0);
+			if (a_depth > 0) Dump(a_val, a_path + "." + a_name, a_depth - 1);
+		});
+	}
+
 	// Skyrim's own health, stamina and magicka bars: hidden while Mario is out, the power meters show the same things.
 	// Also the crosshair with the weapons away, and the compass when Mario's own is drawn. Re-applied now and then
 	// (the HUD shows them again on changes).
@@ -472,7 +557,10 @@ namespace
 		for (const char* clip : { "Health", "Stamina", "Magica" }) SetClipVisible(clip, a_meters);
 		static bool s_logged = false;
 		const bool  cross = SetClipVisible("CrosshairInstance", a_crosshair) | SetClipVisible("Crosshair", a_crosshair);
-		const bool  comp = SetClipVisible("CompassShoutMeterHolder.Compass", a_compass) || SetClipVisible("CompassRect", a_compass);
+		// the compass's frame, its letters and needle go; its markers (CompassRect, a clip of its own) stay, over Mario's
+		bool comp = SetClipVisible("CompassShoutMeterHolder.Compass.CompassFrame", a_compass);
+		for (const char* c : { "CompassShoutMeterHolder.Compass.CompassMask_mc" })
+			SetClipVisible(c, a_compass);
 		if (Config::telemetry && !s_logged) {
 			logger::info("hud: crosshair clip {}, compass clip {}", cross ? "found" : "missing", comp ? "found" : "missing");
 			s_logged = true;
@@ -601,6 +689,14 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 
 void Hud::RequestSnapshot() { s_snapRequested = true; }
 
+void Hud::DumpFlash()
+{
+	auto ui = RE::UI::GetSingleton();
+	auto menu = ui ? ui->GetMenu<RE::HUDMenu>() : nullptr;
+	if (!menu || !menu->GetRuntimeData().health) return;
+	Dump(menu->GetRuntimeData().health->root, "HUD", 3);
+}
+
 void Hud::InstallHook()
 {
 	auto renderer = RE::BSGraphics::Renderer::GetSingleton();
@@ -616,6 +712,8 @@ void Hud::InstallHook()
 	vtbl[8] = reinterpret_cast<void*>(&PresentHook);
 	::VirtualProtect(&vtbl[8], sizeof(void*), old, &old);
 	logger::info("hud: Present hooked");
+	REL::Relocation<std::uintptr_t> hud{ RE::VTABLE_HUDMenu[0] };
+	HudDisplayHook::original = hud.write_vfunc(0x6, HudDisplayHook::PostDisplay);
 }
 
 void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, float a_delta)
@@ -659,6 +757,14 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 			const auto start = std::chrono::steady_clock::now();
 			const bool drawn = a_player->AsActorState()->IsWeaponDrawn();
 			SetVanillaVisible(false, drawn || !Config::hideCrosshairSheathed, !Config::compass);
+			float x0, x1, y, per;
+			if (Config::compass && CompassOnScreen(x0, x1, y, per)) {
+				std::scoped_lock l(s_lock);
+				s_state.compassPerRadian = per;
+				s_state.compassX0 = x0;
+				s_state.compassX1 = x1;
+				s_state.compassY = y;
+			}
 			s_vanillaMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 		}
 		s_vanillaHidden = true;

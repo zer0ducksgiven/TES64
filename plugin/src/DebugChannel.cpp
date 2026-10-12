@@ -52,6 +52,8 @@ void DebugChannel::Poll()
 			}
 		} else if (cmd == "doorbodies") {
 			Collision::LogDoorBodies(player, 6000.0f);
+		} else if (cmd == "flash") {
+			Hud::DumpFlash();
 		} else if (cmd == "star") {
 			Star::SpawnNow();
 			logger::info("debug: star -> next tick");

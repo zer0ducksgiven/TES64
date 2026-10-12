@@ -26,6 +26,8 @@ private:
 	void Enable(RE::PlayerCharacter* a_player);
 	void Disable();
 	void StreamWorld(RE::PlayerCharacter* a_player, bool a_force);
+	RE::NiPoint3 _respawnLast;
+	float        _respawnStill = 0.0f;
 	void UpdateWater(RE::PlayerCharacter* a_player);
 	static void SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible);
 	bool Respawn(RE::PlayerCharacter* a_player);

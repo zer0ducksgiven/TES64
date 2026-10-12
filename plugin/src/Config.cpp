@@ -10,7 +10,6 @@ namespace
 		using namespace Config;
 		toggleKey = static_cast<std::uint32_t>(ini.GetLongValue("Controls", "iToggleKey", toggleKey));
 		attackKey = static_cast<std::uint32_t>(ini.GetLongValue("Controls", "iAttackKey", attackKey));
-		attackPad = static_cast<std::uint32_t>(ini.GetLongValue("Controls", "iAttackGamepad", attackPad));
 		scale = static_cast<float>(ini.GetDoubleValue("Mario", "fScale", scale));
 		damageMult = static_cast<float>(ini.GetDoubleValue("Mario", "fDamageMult", damageMult));
 		weaponScale = static_cast<float>(ini.GetDoubleValue("Mario", "fWeaponScale", weaponScale));

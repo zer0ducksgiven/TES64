@@ -102,9 +102,10 @@ namespace
 	bool  s_active = false;     // the pose is showing this frame
 	float s_yaw = 0.0f;         // Mario's body turned this much (SM64 radians) from where he runs, toward the crosshair
 
-	// Skyrim's spine and head in the actor's own frame while it stands idle: the pose is how far they move from that
+	// Skyrim's pelvis, spine and head in the actor's own frame while it stands idle: the pose is how far they move from that
 	bool          s_haveRest = false;
-	RE::NiMatrix3 s_restSpine, s_restHead;
+	RE::NiMatrix3 s_restPelvis, s_restSpine, s_restHead;
+	constexpr float kMaxTwist = 1.75f;   // radians the upper body turns on the legs; past that the legs turn too
 
 	// posed parts this frame (row-vector, relative to Mario, before the body yaw)
 	struct Part
@@ -142,8 +143,11 @@ namespace
 		const bool moving = state == RE::WEAPON_STATE::kDrawing || state == RE::WEAPON_STATE::kSheathing;
 		const bool casting = a_player->WhoIsCasting() != 0;
 		const bool blocking = a_player->IsBlocking();
+		// a weapon (or a spell) in the left hand too: dual wielding swings both
+		auto       left = a_player->GetEquippedObject(true);
+		const bool leftArmed = left && (left->Is(RE::FormType::Weapon) || left->Is(RE::FormType::Spell));
 		a_right = a_player->IsAttacking() || casting || moving || blocking;
-		a_left = casting || moving || blocking;
+		a_left = casting || moving || blocking || (a_player->IsAttacking() && leftArmed);
 	}
 
 	void Ease(float& a_w, bool a_on, float a_dt)
@@ -292,20 +296,37 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	s_yaw = 0.0f;
 	auto root = a_player->Get3D(false);
 	if (!root) return;
-	auto spine = root->GetObjectByName("NPC Spine2 [Spn2]"), head = root->GetObjectByName("NPC Head [Head]");
+	auto spine = root->GetObjectByName("NPC Spine2 [Spn2]"), head = root->GetObjectByName("NPC Head [Head]"), pelvis = root->GetObjectByName("NPC Pelvis [Pelv]");
 	const RE::NiMatrix3 actorT = root->world.rotate.Transpose();
 
-	// idle: learn how Skyrim's spine and head sit in the actor's frame
-	if (s_weight <= 0.0f && spine && head) {
-		const auto sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
+	// idle: learn how Skyrim's pelvis, spine and head sit in the actor's frame
+	if (s_weight <= 0.0f && spine && head && pelvis) {
+		const auto pv = actorT * pelvis->world.rotate, sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
+		s_restPelvis = s_haveRest ? Blend(s_restPelvis, pv, 0.1f) : pv;
 		s_restSpine = s_haveRest ? Blend(s_restSpine, sp, 0.1f) : sp;
 		s_restHead = s_haveRest ? Blend(s_restHead, hd, 0.1f) : hd;
 		s_haveRest = true;
 	}
 	if (!s_layoutOk || s_weight <= 0.01f) return;
 
-	// the whole body turns to the crosshair; SM64 keeps steering him where the stick points, so he strafes
-	s_yaw = Wrap(RE::NI_PI - a_player->GetAngleZ() - a_face) * s_weight;
+	// where he looks: the crosshair, against where SM64 runs him (the stick)
+	const float toCrosshair = Wrap(RE::NI_PI - a_player->GetAngleZ() - a_face);
+	// Skyrim's hips turning in the swing (a spin attack goes all the way round): his legs turn with them
+	float hips = 0.0f;
+	RE::NiMatrix3 unturn;   // the hips' turn taken back out of the spine's, which rides on them
+	unturn.entry[0][0] = unturn.entry[1][1] = unturn.entry[2][2] = 1.0f;
+	if (Config::bodyPose && s_haveRest && pelvis) {
+		const auto d = (actorT * pelvis->world.rotate) * s_restPelvis.Transpose();
+		hips = std::atan2(d.entry[1][0], d.entry[0][0]);   // about the actor's up, counter-clockwise
+		const float c = std::cos(-hips), s = std::sin(-hips);
+		unturn.entry[0][0] = c; unturn.entry[0][1] = -s;
+		unturn.entry[1][0] = s; unturn.entry[1][1] = c;
+	}
+	// the upper body twists toward the crosshair on legs that keep running where he goes, as far as a body can; more
+	// than that and the legs come round too. Without the body pose, all of him turns.
+	float twist = Config::bodyPose ? std::clamp(toCrosshair, -kMaxTwist, kMaxTwist) : 0.0f;
+	s_yaw = (toCrosshair - twist + hips) * s_weight;
+	twist *= s_weight;
 
 	// Mario's parts this frame, relative to him, blended between the last two ticks
 	for (int i = 0; i < kParts; i++) {
@@ -318,9 +339,13 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	// his arms ride along before they're aimed, so a swing winds up with the body instead of through it
 	if (Config::bodyPose && s_haveRest && spine && head) {
 		const auto sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
-		const M3   dSpine = Partial(ActorToMario(sp * s_restSpine.Transpose(), a_face), s_weight);
-		const M3   dHead = Partial(ActorToMario(hd * s_restHead.Transpose(), a_face), s_weight);
-		const V3   pivot = s_parts[kTorso].t;
+		// the spine's and head's own movement (without the hips' turn, which the whole body already has), then the
+		// twist to the crosshair, about the vertical
+		const float tc = std::cos(twist), ts = std::sin(twist);
+		const M3    yTwist{ tc, 0, -ts, 0, 1, 0, ts, 0, tc };
+		const M3    dSpine = Mul(Partial(ActorToMario(unturn * (sp * s_restSpine.Transpose()), a_face), s_weight), yTwist);
+		const M3    dHead = Mul(Partial(ActorToMario(unturn * (hd * s_restHead.Transpose()), a_face), s_weight), yTwist);
+		const V3    pivot = s_parts[kTorso].t;
 		for (int i = kTorso; i <= kRightArm + 2; i++) {
 			auto& p = s_parts[i];
 			p.t = pivot + Apply(p.t - pivot, dSpine);

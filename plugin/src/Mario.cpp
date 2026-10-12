@@ -103,7 +103,15 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	// Skyrim moved the player (a door, fast travel, coc, a script): Mario follows instead of dragging them back
 	if (_haveLastSet && a_player->GetPosition().GetDistance(_lastSet) > 300.0f) _respawnPending = true;
 	if (_respawnPending) {
+		// a door or fast travel puts the player down in steps (the marker, then where the game settles them): wait until
+		// they've stopped moving for a moment, so Mario starts where Skyrim's character ends up, not at the door
+		const auto now = a_player->GetPosition();
+		if (now.GetDistance(_respawnLast) > 2.0f) _respawnStill = 0.0f;
+		else _respawnStill += a_delta;
+		_respawnLast = now;
+		if (_respawnStill < 0.3f) return;
 		if (!Respawn(a_player)) return;   // the new cell's collision isn't loaded yet: try next frame
+		_respawnStill = 0.0f;
 	}
 
 	Pose::Track(a_player, a_delta);

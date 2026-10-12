@@ -93,7 +93,10 @@ namespace
 		Collision::Stats*                        stats;
 		std::unordered_set<std::uint32_t>        warned;
 
-		void Emit(V3 a, V3 b, V3 c)
+		// a_mesh: a triangle of a mesh (not a hull's face). Havok's meshes collide from both sides, so their winding is
+		// whatever the artist left: one facing down would be a ceiling to SM64, and Mario drops through the bridge or
+		// walkway it belongs to. Those get a floor facing up as well.
+		void Emit(V3 a, V3 b, V3 c, bool a_mesh = false)
 		{
 			float mnx = std::min({ a.x, b.x, c.x }), mxx = std::max({ a.x, b.x, c.x });
 			float mny = std::min({ a.y, b.y, c.y }), mxy = std::max({ a.y, b.y, c.y });
@@ -101,6 +104,12 @@ namespace
 			if (mxx < lo.x || mnx > hi.x || mxy < lo.y || mny > hi.y || mxz < lo.z || mnz > hi.z) return;
 			auto g = [&](V3 v) { return NiPoint3{ v.x * toGame, v.y * toGame, v.z * toGame }; };
 			out->push_back({ { g(a), g(b), g(c) } });
+			if (a_mesh) {
+				const V3    u{ b.x - a.x, b.y - a.y, b.z - a.z }, v{ c.x - a.x, c.y - a.y, c.z - a.z };
+				const float nz = u.x * v.y - u.y * v.x;
+				const float len = std::sqrt(std::pow(u.y * v.z - u.z * v.y, 2.0f) + std::pow(u.z * v.x - u.x * v.z, 2.0f) + nz * nz);
+				if (len > 1e-8f && nz < -0.01f * len) out->push_back({ { g(a), g(c), g(b) } });
+			}
 		}
 
 		void Box(const Xf& x, V3 h)
@@ -117,7 +126,7 @@ namespace
 			if (!ValidShape(s) || depth > 8) return;
 			switch (s->type) {
 			case hkpShapeType::kTriangle:
-				Emit(x.Apply(Load(At<hkVector4>(s, 0x30))), x.Apply(Load(At<hkVector4>(s, 0x40))), x.Apply(Load(At<hkVector4>(s, 0x50))));
+				Emit(x.Apply(Load(At<hkVector4>(s, 0x30))), x.Apply(Load(At<hkVector4>(s, 0x40))), x.Apply(Load(At<hkVector4>(s, 0x50))), true);
 				return;
 			case hkpShapeType::kBox:
 				Box(x, Load(At<hkVector4>(s, 0x30)));

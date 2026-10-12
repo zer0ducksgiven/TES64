@@ -5,8 +5,34 @@
 namespace
 {
 	// XInput button masks, as Skyrim reports them for a gamepad
-	constexpr std::uint32_t kPadLeftStick = 0x0040, kPadLeftShoulder = 0x0100, kPadA = 0x1000, kPadX = 0x4000;
+	constexpr std::uint32_t kPadLeftStick = 0x0040, kPadLeftShoulder = 0x0100, kPadA = 0x1000, kPadY = 0x8000;
 	constexpr float         kTap = 0.3f;   // seconds: shorter on X is a dive, longer is Skyrim's draw / sheathe
+
+	bool s_aIgnored = false;   // this press of A was Skyrim's Activate (the crosshair was on something), not a jump
+
+	// Skyrim's Ready Weapon handler, for the pad's X while Mario is out: Skyrim would draw on the press, so the press is
+	// held back. Let go quickly: Mario dives. Held: the weapons are drawn or put away, once.
+	struct ReadyWeaponHook
+	{
+		static void ProcessButton(RE::ReadyWeaponHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
+		{
+			if (!a_event || a_event->GetDevice() != RE::INPUT_DEVICE::kGamepad || !Mario::GetSingleton()->Active()) {
+				original(a_this, a_event, a_data);
+				return;
+			}
+			static bool s_fired = false;
+			if (a_event->IsDown()) s_fired = false;
+			if (a_event->IsPressed() && !s_fired && a_event->HeldDuration() >= kTap) {
+				s_fired = true;
+				if (auto player = RE::PlayerCharacter::GetSingleton()) player->DrawWeaponMagicHands(!player->AsActorState()->IsWeaponDrawn());
+			}
+			if (a_event->IsUp()) {
+				if (!s_fired) Input::GetSingleton()->dive = true;
+				s_fired = false;
+			}
+		}
+		static inline REL::Relocation<decltype(ProcessButton)> original;
+	};
 }
 
 void Input::Register()
@@ -14,6 +40,8 @@ void Input::Register()
 	if (auto mgr = RE::BSInputDeviceManager::GetSingleton()) {
 		mgr->AddEventSink(GetSingleton());
 	}
+	REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_ReadyWeaponHandler[0] };
+	ReadyWeaponHook::original = vtbl.write_vfunc(0x4, ReadyWeaponHook::ProcessButton);
 }
 
 RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*)
@@ -37,22 +65,28 @@ RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE:
 		if (device != RE::INPUT_DEVICE::kKeyboard && device != RE::INPUT_DEVICE::kGamepad) continue;
 
 		if (device == RE::INPUT_DEVICE::kGamepad) {
-			// an Xbox pad, fixed whatever Skyrim's own bindings are: A jumps, Y punches / kicks (SM64's B; B is Skyrim's
-			// menu), a tap of X dives (holding X stays Skyrim's draw / sheathe), the left bumper or the left stick's click
-			// crouches / ground-pounds (Z). The sticks, triggers (attack, cast), B, the shouts and the d-pad stay Skyrim's.
+			// an Xbox pad, fixed whatever Skyrim's own bindings are: A jumps (unless it's activating something), Y punches /
+			// kicks (SM64's B; B is Skyrim's menu), a tap of X dives and holding it draws / sheathes (ReadyWeaponHook), the
+			// left bumper or the left stick's click crouches / ground-pounds (Z). The sticks, triggers (attack, cast), B,
+			// the shouts and the d-pad stay Skyrim's.
 			switch (code) {
 			case kPadA:
-				a = pressed;
+				// A is also Skyrim's Activate: looking at something usable, it's that, not a jump
+				if (button->IsDown()) {
+					auto pick = RE::CrosshairPickData::GetSingleton();
+					s_aIgnored = pick && pick->GetActiveTarget().get();
+				}
+				a = pressed && !s_aIgnored;
+				if (!pressed) s_aIgnored = false;
 				break;
-			case kPadX:
-				if (button->IsUp() && button->HeldDuration() < kTap) dive = true;
+			case kPadY:
+				b = pressed;
 				break;
 			case kPadLeftShoulder:
 			case kPadLeftStick:
 				z = pressed;
 				break;
 			default:
-				if (code == Config::attackPad) b = pressed;
 				break;
 			}
 			continue;
@@ -60,8 +94,7 @@ RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE:
 		auto mapped = [&](std::string_view ev) { return controlMap && controlMap->GetMappedKey(ev, device) == code; };
 		if (mapped("Jump"sv)) a = pressed;
 		else if (mapped("Sneak"sv)) z = pressed;
-		else if ((device == RE::INPUT_DEVICE::kKeyboard && code == Config::attackKey) ||
-				 (device == RE::INPUT_DEVICE::kGamepad && code == Config::attackPad))
+		else if (device == RE::INPUT_DEVICE::kKeyboard && code == Config::attackKey)
 			b = pressed;
 	}
 	return RE::BSEventNotifyControl::kContinue;
