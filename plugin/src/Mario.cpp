@@ -210,6 +210,21 @@ bool Mario::Respawn(RE::PlayerCharacter* a_player)
 	_streamed = false;
 	StreamWorld(a_player, true);
 	if (!_streamed) return false;
+	// the new cell's collision can still be arriving: spawn only on ground that's there (within a few seconds, else
+	// anyway), not into the void beside it, which is where Mario fell out of the world
+	if (Sm64::find_floor_height) {
+		if (Sm64::lock) Sm64::lock();
+		const float floor = Sm64::find_floor_height(0.0f, 300.0f, 0.0f);
+		if (Sm64::unlock) Sm64::unlock();
+		const bool ground = floor > -1e4f && std::abs(floor) < 200.0f;
+		if (!ground && ++_respawnWaits < 90) {
+			if (Config::telemetry) logger::info("respawn: no ground under the spawn yet (floor {:.0f}), waiting", floor);
+			_streamed = false;
+			return false;
+		}
+		if (Config::telemetry) logger::info("respawn: ground {:.0f} under the spawn after {} waits", floor, _respawnWaits);
+	}
+	_respawnWaits = 0;
 	Sm64::mario_delete(_id);
 	_id = Sm64::mario_create(0.0f, 20.0f / Config::scale, 0.0f);
 	if (_id < 0) return false;
@@ -420,6 +435,15 @@ void Mario::UpdateWater(RE::PlayerCharacter* a_player)
 		if (cell->GetWaterHeight(pos, h) && h > -1e6f && h < 1e6f) level = h;
 	}
 	auto sm = ToSm64({ pos.x, pos.y, level });
+	// Mario is only in water if there's water under him: the ground he stands on (a bridge, the bank, a ledge) above
+	// the surface means he's on land, however far the surface is below his feet. Otherwise the water reads as his
+	// own, and SM64 swims him in the air.
+	if (level > -1e6f && Sm64::find_floor_height) {
+		if (Sm64::lock) Sm64::lock();
+		const float floor = Sm64::find_floor_height(_state.position[0], _state.position[1] + 80.0f, _state.position[2]);
+		if (Sm64::unlock) Sm64::unlock();
+		if (floor > -1e4f && floor > sm[1] - 10.0f) level = -1e6f;
+	}
 	Sm64::set_mario_water_level(_id, static_cast<int>(level <= -1e6f ? -1000000 : sm[1]));
 }
 

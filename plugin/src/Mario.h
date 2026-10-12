@@ -28,6 +28,7 @@ private:
 	void StreamWorld(RE::PlayerCharacter* a_player, bool a_force);
 	RE::NiPoint3 _respawnLast;
 	float        _respawnStill = 0.0f;
+	int               _respawnWaits = 0;   // frames waited for the spawn spot's ground to load
 	RE::BGSVoiceType* _savedVoice = nullptr;   // the player's own voice while it's silenced (-1: it had none)
 	void UpdateWater(RE::PlayerCharacter* a_player);
 	static void SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible);
