@@ -26,4 +26,6 @@ if [ -z "$ISCC" ]; then
   exit 1
 fi
 MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" "$ISCC" /Q "/DAppVersion=$VERSION" installer/tes64.iss
-echo "packaged $VERSION: dist/TES64/, dist/TES64-Setup.exe"
+cp dist/TES64-Setup.exe dist/TES64/
+(cd dist && rm -f "TES64-$VERSION.zip" && py -3 -c "import shutil,sys; shutil.make_archive(sys.argv[1], 'zip', '.', 'TES64')" "TES64-$VERSION")
+echo "packaged $VERSION: dist/TES64/, dist/TES64-Setup.exe, dist/TES64-$VERSION.zip"
