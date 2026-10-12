@@ -26,3 +26,17 @@ int ng64_hud_image(const char *name, const uint8_t **rgba, int *w, int *h);
 
 SM64_LIB_FN int tes64_hud_extract(const uint8_t *rom, size_t len) { return ng64_hud_extract(rom, len); }
 SM64_LIB_FN int tes64_hud_image(const char *name, const uint8_t **rgba, int *w, int *h) { return ng64_hud_image(name, rgba, w, h); }
+
+// Mario's sounds from the ROM (audio.c, from NG64): libsm64's audio thread feeding waveOut. libsm64's audio state is
+// shared with mario_tick (it starts sounds), so the plugin ticks Mario under tes64_lock/unlock.
+int ng64_audio_start(const uint8_t *rom);
+void ng64_audio_stop(void);
+void ng64_audio_set_volume(int pct);
+void ng64_sm64_lock(void);
+void ng64_sm64_unlock(void);
+
+SM64_LIB_FN int tes64_audio_start(const uint8_t *rom) { return ng64_audio_start(rom); }
+SM64_LIB_FN void tes64_audio_stop(void) { ng64_audio_stop(); }
+SM64_LIB_FN void tes64_audio_volume(int pct) { ng64_audio_set_volume(pct); }
+SM64_LIB_FN void tes64_lock(void) { ng64_sm64_lock(); }
+SM64_LIB_FN void tes64_unlock(void) { ng64_sm64_unlock(); }

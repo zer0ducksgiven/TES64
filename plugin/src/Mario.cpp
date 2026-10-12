@@ -72,6 +72,12 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		else Enable(a_player);
 	}
 	Hud::Tick(a_player, Active(), static_cast<int>(_state.health >> 8), a_delta);
+	if (Sm64::audio_volume) {
+		auto ui = RE::UI::GetSingleton();
+		const int want = Active() && !(ui && ui->GameIsPaused()) ? Config::volume : 0;
+		static int s_volume = -1;
+		if (want != s_volume) Sm64::audio_volume(s_volume = want);
+	}
 	if (!Active()) return;
 
 	auto ui = RE::UI::GetSingleton();
@@ -348,7 +354,9 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 			Combat::SuppressNextAttack();
 		}
 	}
+	if (Sm64::lock) Sm64::lock();
 	Sm64::mario_tick(_id, &in, &_state, &_geo);
+	if (Sm64::unlock) Sm64::unlock();
 	Arms::ReadHands([this](const float* p) { return ToSkyrim(p); }, RE::NI_PI - _state.faceAngle);
 	Combat::Tick(a_player, _id, _state, ToSkyrim(_state.position), [this](const RE::NiPoint3& p) { return ToSm64(p); });
 }

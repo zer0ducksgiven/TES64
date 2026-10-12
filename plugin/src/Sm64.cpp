@@ -50,7 +50,7 @@ bool Sm64::Init()
 		logger::error("Super Mario 64 ROM not found at '{}' (set sRomPath in TES64.ini, or rerun the installer)", Config::romPath);
 		return false;
 	}
-	std::vector<std::uint8_t> rom((std::istreambuf_iterator<char>(f)), {});
+	rom.assign(std::istreambuf_iterator<char>(f), {});
 	if (!rom_normalize(rom.data(), rom.size()) || rom.size() != 8 * 1024 * 1024) {
 		logger::error("'{}' is not an 8 MB Super Mario 64 ROM", Config::romPath);
 		return false;
@@ -63,6 +63,17 @@ bool Sm64::Init()
 		return false;
 	}
 	Hud::Init(rom.data(), rom.size());
+	auto start = reinterpret_cast<int (*)(const std::uint8_t*)>(::GetProcAddress(dll, "tes64_audio_start"));
+	audio_volume = reinterpret_cast<void (*)(int)>(::GetProcAddress(dll, "tes64_audio_volume"));
+	lock = reinterpret_cast<void (*)()>(::GetProcAddress(dll, "tes64_lock"));
+	unlock = reinterpret_cast<void (*)()>(::GetProcAddress(dll, "tes64_unlock"));
+	if (Config::sounds && start && start(rom.data())) {
+		audio_volume(0);   // silent until Mario mode
+		logger::info("audio: Mario's sounds from the ROM");
+	} else {
+		audio_volume = nullptr;
+		logger::info("audio: off");
+	}
 	s_ready = true;
 	logger::info("libsm64 ready");
 	return true;

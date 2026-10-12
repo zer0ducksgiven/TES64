@@ -26,7 +26,11 @@ namespace Sm64
 	inline int (*load_mario_model)(const std::uint8_t*, std::size_t);
 	inline const char* (*rom_error)();
 
-	inline std::vector<std::uint8_t> texture;   // Mario's texture atlas, RGBA, from the ROM
+	inline std::vector<std::uint8_t> rom;       // kept: libsm64's audio reads its sound banks from it
+	inline std::vector<std::uint8_t> texture;
+	inline void (*audio_volume)(int) = nullptr;
+	inline void (*lock)() = nullptr;
+	inline void (*unlock)() = nullptr;   // Mario's texture atlas, RGBA, from the ROM
 
 	// loads sm64.dll and the player's ROM; false (logged) if either is missing or wrong
 	bool Init();
