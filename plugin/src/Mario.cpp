@@ -8,6 +8,7 @@
 #include "Arms.h"
 #include "DebugChannel.h"
 #include "Hud.h"
+#include "Caps.h"
 
 namespace
 {
@@ -121,7 +122,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		Camera::EnsureThirdPerson();
 		// the player's body comes back after loads and race/armour changes: keep it hidden
 		SetPlayerVisible(a_player, false);
-		Render::Update(_geo, pos, [this](const float* p) { return ToSkyrim(p); });
+		Render::Update(_geo, pos, [this](const float* p) { return ToSkyrim(p); }, _state.flags);
 		if (auto root = Render::Root()) Arms::Update(a_player, root->AsNode(), pos);
 	}
 
@@ -354,6 +355,7 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 			Combat::SuppressNextAttack();
 		}
 	}
+	Caps::Tick(a_player, _id);
 	if (Sm64::lock) Sm64::lock();
 	Sm64::mario_tick(_id, &in, &_state, &_geo);
 	if (Sm64::unlock) Sm64::unlock();

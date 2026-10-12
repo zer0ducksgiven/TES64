@@ -1,5 +1,6 @@
 #include "Combat.h"
 #include "Hud.h"
+#include "Caps.h"
 #include "Config.h"
 #include "Input.h"
 #include "Mario.h"
@@ -40,6 +41,7 @@ namespace
 			Hud::InstallHook();
 			Input::Register();
 			Combat::Register();
+			Caps::Register();
 			if (Config::telemetry) {
 				static MenuLog menuLog;
 				RE::UI::GetSingleton()->AddEventSink<RE::MenuOpenCloseEvent>(&menuLog);

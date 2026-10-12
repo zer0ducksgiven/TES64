@@ -143,8 +143,9 @@ bool Render::Visible() { return s_attached; }
 RE::NiAVObject* Render::Root() { return s_root.get(); }
 std::uint32_t Render::TrianglesDrawn() { return s_drawn; }
 
-void Render::Update(const SM64MarioGeometryBuffers& a_geo, const RE::NiPoint3& a_root, const std::function<RE::NiPoint3(const float*)>& a_toSkyrim)
+void Render::Update(const SM64MarioGeometryBuffers& a_geo, const RE::NiPoint3& a_root, const std::function<RE::NiPoint3(const float*)>& a_toSkyrim, std::uint32_t a_flags)
 {
+	const bool metal = a_flags & 0x04, vanish = a_flags & 0x02;
 	if (!s_attached || !s_root) return;
 	using DirectX::PackedVector::XMConvertFloatToHalf;
 
@@ -176,6 +177,12 @@ void Render::Update(const SM64MarioGeometryBuffers& a_geo, const RE::NiPoint3& a
 			const bool  up = std::abs(nz) > 0.9f;
 			b.tangent[0] = Snorm(up ? 1.0f : -ny); b.tangent[1] = Snorm(up ? 0.0f : nx); b.tangent[2] = Snorm(0.0f); b.bitangentZ = 128;
 			b.color[0] = Unorm(c[0] * kBodyBrighten); b.color[1] = Unorm(c[1] * kBodyBrighten); b.color[2] = Unorm(c[2] * kBodyBrighten); b.color[3] = 255;
+			if (metal) {   // Metal Mario: polished silver, shaded by the light his SM64 colour carries
+				const float l = std::clamp(0.35f + 0.65f * (c[0] + c[1] + c[2]) / 3.0f * kBodyBrighten, 0.0f, 1.0f);
+				b.color[0] = Unorm(l * 0.85f); b.color[1] = Unorm(l * 0.88f); b.color[2] = Unorm(l * 0.95f);
+			} else if (vanish) {   // Vanish Cap: washed out, ghostly
+				for (int k2 = 0; k2 < 3; k2++) b.color[k2] = static_cast<std::uint8_t>(b.color[k2] / 3 + 170);
+			}
 
 			if (textured) {
 				d = b;
