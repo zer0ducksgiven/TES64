@@ -9,7 +9,8 @@ namespace Config
 	inline std::uint32_t attackPad = 0x0040;     // left stick click
 	inline float         scale = 0.48f;          // Skyrim units per SM64 unit: Mario ends up ~0.6x an NPC's height
 
-	inline bool          telemetry = false;      // [Debug] bTelemetry: state lines in TES64.log, for the UAT harness
+	inline bool          telemetry = false;
+	inline int           renderTest = 0;         // [Debug] iRenderTest: 1 = draw a test cube instead of Mario      // [Debug] bTelemetry: state lines in TES64.log, for the UAT harness
 
 	void Load();
 }

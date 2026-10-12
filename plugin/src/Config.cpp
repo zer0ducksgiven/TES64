@@ -16,5 +16,6 @@ void Config::Load()
 	attackPad = static_cast<std::uint32_t>(ini.GetLongValue("Controls", "iAttackGamepad", attackPad));
 	scale = static_cast<float>(ini.GetDoubleValue("Mario", "fScale", scale));
 	telemetry = ini.GetBoolValue("Debug", "bTelemetry", false);
+	renderTest = static_cast<int>(ini.GetLongValue("Debug", "iRenderTest", 0));
 	if (scale <= 0.01f) scale = 0.48f;
 }

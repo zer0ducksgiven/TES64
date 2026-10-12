@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "Input.h"
 #include "Mario.h"
+#include "Render.h"
 #include "Sm64.h"
 
 namespace
@@ -33,7 +34,7 @@ namespace
 			logger::info("game loaded");
 		}
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
-			Sm64::Init();
+			if (Sm64::Init()) Render::WriteAtlas();
 			Input::Register();
 			if (Config::telemetry) {
 				static MenuLog menuLog;

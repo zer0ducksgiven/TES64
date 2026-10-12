@@ -39,6 +39,8 @@ SelectDirLabel3=Choose your Skyrim Special Edition folder (the one with SkyrimSE
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.dll"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64\sm64.dll"; DestDir: "{app}\Data\SKSE\Plugins\TES64"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.ini"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#Dist}\TES64\Data\meshes\TES64\*"; DestDir: "{app}\Data\meshes\TES64"; Flags: ignoreversion
+Source: "{#Dist}\TES64\Data	extures\TES64\*"; DestDir: "{app}\Data	extures\TES64"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{localappdata}\TES64"; Flags: ignoreversion
 
 [INI]
@@ -46,6 +48,9 @@ Filename: "{app}\Data\SKSE\Plugins\TES64.ini"; Section: "General"; Key: "sRomPat
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\Data\SKSE\Plugins\TES64"
+; mario.dds is written by the plugin from the ROM at runtime
+Type: filesandordirs; Name: "{app}\Data	extures\TES64"
+Type: filesandordirs; Name: "{app}\Data\meshes\TES64"
 Type: filesandordirs; Name: "{localappdata}\TES64"
 
 [Code]

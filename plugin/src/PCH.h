@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cmath>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>

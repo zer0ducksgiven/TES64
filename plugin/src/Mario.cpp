@@ -2,6 +2,8 @@
 #include "Config.h"
 #include "Input.h"
 #include "Collision.h"
+#include "Render.h"
+#include "Camera.h"
 
 namespace
 {
@@ -83,12 +85,20 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	if (auto controller = a_player->GetCharController()) controller->fallStartHeight = pos.z;
 	a_player->SetAngle({ 0.0f, 0.0f, RE::NI_PI - _state.faceAngle });
 
+	if (Render::Visible()) {
+		// third person only: there's no first-person Mario
+		Camera::EnsureThirdPerson();
+		// the player's body comes back after loads and race/armour changes: keep it hidden
+		SetPlayerVisible(a_player, false);
+		Render::Update(_geo, pos, [this](const float* p) { return ToSkyrim(p); });
+	}
+
 	if (Config::telemetry && (_telemetryTimer += a_delta) >= 0.1f) {
 		_telemetryTimer = 0.0f;
 		auto p = a_player->GetPosition();
-		logger::info("TEL mario=({:.1f},{:.1f},{:.1f}) vel=({:.2f},{:.2f},{:.2f}) action=0x{:08X} health=0x{:04X} tris={} player=({:.1f},{:.1f},{:.1f})",
+		logger::info("TEL mario=({:.1f},{:.1f},{:.1f}) vel=({:.2f},{:.2f},{:.2f}) action=0x{:08X} health=0x{:04X} tris={} player=({:.1f},{:.1f},{:.1f}) drawn={}",
 			_state.position[0], _state.position[1], _state.position[2], _state.velocity[0], _state.velocity[1], _state.velocity[2],
-			_state.action, static_cast<std::uint16_t>(_state.health), _geo.numTrianglesUsed, p.x, p.y, p.z);
+			_state.action, static_cast<std::uint16_t>(_state.health), _geo.numTrianglesUsed, p.x, p.y, p.z, Render::TrianglesDrawn());
 	}
 
 }
@@ -124,12 +134,30 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 	_accum = 0.0f;
 
 	if (auto controls = RE::ControlMap::GetSingleton()) controls->ToggleControls(kTakenControls, false, false);
+	if (Render::Show()) {
+		SetPlayerVisible(a_player, false);
+		Camera::Apply(160.0f * Config::scale);   // Mario is ~160 SM64 units tall
+	}
 	logger::info("Mario mode on at ({}, {}, {})", _origin.x, _origin.y, _origin.z);
 	Notify("It's-a me, Mario!");
 }
 
+void Mario::SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible)
+{
+	// the children, not the root: the root is a fade node the game un-culls every frame
+	auto root = a_player ? a_player->Get3D(false) : nullptr;
+	auto node = root ? root->AsNode() : nullptr;
+	if (!node) return;
+	for (auto& child : node->GetChildren()) {
+		if (child && child.get() != Render::Root()) child->SetAppCulled(!a_visible);
+	}
+}
+
 void Mario::Disable()
 {
+	Render::Hide();
+	Camera::Restore();
+	SetPlayerVisible(RE::PlayerCharacter::GetSingleton(), true);
 	if (auto player = RE::PlayerCharacter::GetSingleton(); player && _savedGravity) {
 		if (auto controller = player->GetCharController()) {
 			controller->gravity = *_savedGravity;

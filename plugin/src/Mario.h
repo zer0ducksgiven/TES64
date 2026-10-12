@@ -27,6 +27,7 @@ private:
 	void Disable();
 	void StreamWorld(RE::PlayerCharacter* a_player, bool a_force);
 	void UpdateWater(RE::PlayerCharacter* a_player);
+	static void SetPlayerVisible(RE::PlayerCharacter* a_player, bool a_visible);
 	void Tick(RE::PlayerCharacter* a_player);
 
 	std::atomic<bool>    _toggleRequested{ false };
