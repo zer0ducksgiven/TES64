@@ -88,6 +88,34 @@ void DebugChannel::Poll()
 				best->KillImmediate();
 			}
 			logger::info("debug: killnearest -> {}", best ? fmt::format("{:08X} at {:.0f}", best->GetFormID(), bestD) : "nobody");
+		} else if (cmd == "furniture") {
+			// furniture refs within arg units of the player: form id, base, place, and the player's sit state
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				const float radius = arg.empty() ? 1500.0f : std::stof(arg);
+				tes->ForEachReferenceInRange(player, radius, [&](RE::TESObjectREFR* ref) {
+					auto base = ref->GetBaseObject();
+					if (base && base->Is(RE::FormType::Furniture)) {
+						auto p = ref->GetPosition();
+						logger::info("FURN {:08X} base={:08X} ({:.0f},{:.0f},{:.0f}) dist={:.0f}", ref->GetFormID(), base->GetFormID(), p.x, p.y, p.z, p.GetDistance(player->GetPosition()));
+					}
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			}
+			logger::info("FURN player sit={} furniture={:08X} killmove={}", static_cast<int>(player->AsActorState()->GetSitSleepState()),
+				player->GetOccupiedFurniture().get() ? player->GetOccupiedFurniture().get()->GetFormID() : 0, player->IsInKillMove() ? 1 : 0);
+		} else if (cmd == "actors") {
+			// actors within arg units of the player (form id, name, health), nearest first
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				const float radius = arg.empty() ? 1500.0f : std::stof(arg);
+				tes->ForEachReferenceInRange(player, radius, [&](RE::TESObjectREFR* ref) {
+					if (auto a = ref->As<RE::Actor>(); a && a != player) {
+						const auto ap = a->GetPosition();
+						logger::info("ACTOR {:08X} {} health={:.0f} dead={} dist={:.0f} at=({:.0f},{:.0f},{:.0f})", a->GetFormID(), a->GetName(),
+							a->AsActorValueOwner()->GetActorValue(RE::ActorValue::kHealth), a->IsDead() ? 1 : 0, ap.GetDistance(player->GetPosition()), ap.x, ap.y, ap.z);
+					}
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			}
 		} else if (cmd == "mirror") {
 			// -1: by the game (furniture, killmoves); 0 and 1 force it off and on, for the test
 			Pose::ForceMirror(std::stoi(arg));

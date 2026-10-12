@@ -37,6 +37,7 @@ settings menu). Uninstall from Windows' Installed apps.
   (strong hits knock them down) and shove physics clutter. Skyrim's hits knock Mario back, SM64-style.
 - **Health**: Mario's power meter shows your Skyrim health. Falls and burns in SM64 cost Skyrim health.
 - **HUD**: LIFE (your health, the POWER meter), MAGIKA and STAMINA in the bottom left; stars and coins top right; an SM64-style compass at the top. Skyrim's bars and compass are hidden while you're Mario, and so is the crosshair while your weapons are away. All of Skyrim's text uses the SM64 font (needs `Mario64.ttf` when packaging; restart after changing).
+- **Furniture and executions**: while the player sits, sleeps, uses furniture or is in a killmove, Mario's whole body copies their pose and he goes where they are. Killmoves aren't verified in-game yet.
 - **Power Stars**: every quest you complete as Mario puts a Power Star on open ground nearby. Touch it for the star dance and a full heal.
 - **Coins and stars**: coins are your gold (picking gold up heals, like SM64's coins), stars are completed quests.
 - **Caps**: invisibility (spell or potion) gives the Vanish Cap, the armour spells (Oakflesh...) the Metal Cap,

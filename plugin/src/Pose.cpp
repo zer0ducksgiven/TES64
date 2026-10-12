@@ -112,6 +112,7 @@ namespace
 	int   s_forceMirror = -1;    // debug: -1 by the game, 0 off, 1 on
 	Pose::Arm s_legL, s_legR;    // the legs' chains (their matrices aren't used: the parts are)
 	constexpr float kMaxTwist = 1.75f;   // radians the upper body turns on the legs; past that the legs turn too
+	constexpr float kMarioHeight = 160.0f;   // SM64 units (Mario.cpp: "Mario is ~160 SM64 units tall")
 
 	// posed parts this frame (row-vector, relative to Mario, before the body yaw)
 	struct Part
@@ -290,7 +291,9 @@ void Pose::Track(RE::PlayerCharacter* a_player, float a_delta)
 	const bool furniture = a_player->GetOccupiedFurniture().get() != nullptr || state == RE::SIT_SLEEP_STATE::kIsSitting ||
 	                       state == RE::SIT_SLEEP_STATE::kIsSleeping;
 	const bool killmove = a_player->IsInKillMove();
+	const bool was = s_mirror;
 	s_mirror = s_forceMirror >= 0 ? s_forceMirror == 1 : (furniture || killmove);
+	if (s_mirror != was) logger::info("MIRROR {} sit={} furniture={} killmove={}", s_mirror ? "on" : "off", static_cast<int>(state), furniture ? 1 : 0, killmove ? 1 : 0);
 	Ease(s_mirrorW, s_mirror, a_delta);
 
 	bool right, left;
@@ -367,7 +370,9 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 		const RE::NiPoint3 dOff = actorT * (pelvis->world.translate - rootAt) - s_restPelvisOff;   // Skyrim units, actor's frame
 		const float        cy = std::cos(a_face), sy = std::sin(a_face);
 		const V3           ax[3] = { { -cy, 0, sy }, { sy, 0, cy }, { 0, 1, 0 } };   // the actor's axes in SM64
-		const V3           dT = (ax[0] * dOff.x + ax[1] * dOff.y + ax[2] * dOff.z) * (s_mirrorW / Config::scale);
+		// Skyrim's body drop, scaled to Mario's proportions: the player's own height is about 128 units, Mario's 160 SM64
+		const float        playerH = a_player->GetHeight() > 30.0f ? a_player->GetHeight() : 128.0f;
+		const V3           dT = (ax[0] * dOff.x + ax[1] * dOff.y + ax[2] * dOff.z) * (s_mirrorW * kMarioHeight / playerH);
 		const V3           pv = s_parts[kPelvis].t;
 		for (int i = kPelvis; i < kParts; i++) {
 			auto& p = s_parts[i];
@@ -412,7 +417,12 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	s_active = true;
 	if (Config::telemetry) {
 		static int s_log = 0;
-		if (s_log++ % 20 == 0) logger::info("POSE weight={:.2f} right={} left={} yaw={:.2f} mirror={:.2f}", s_weight, s_rightOk, s_leftOk, s_yaw, s_mirrorW);
+		if (s_log++ % 20 == 0) {
+			logger::info("POSE weight={:.2f} right={} left={} yaw={:.2f} mirror={:.2f}", s_weight, s_rightOk, s_leftOk, s_yaw, s_mirrorW);
+			if (s_mirrorW > 0.5f)   // SM64 units from Mario's origin (his feet on the ground are about -(seat height) below his seat)
+				logger::info("POSE body pelvis={:.0f} head={:.0f} knee={:.0f} ankle={:.0f} hip={:.0f}", s_parts[kPelvis].t.y, s_parts[kHead].t.y,
+					s_parts[kLeftLeg + 1].t.y, s_parts[kLeftLeg + 2].t.y, s_parts[kLeftLeg].t.y);
+		}
 	}
 }
 
