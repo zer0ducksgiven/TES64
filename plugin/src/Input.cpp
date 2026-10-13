@@ -27,6 +27,21 @@ namespace
 
 	// Skyrim's Ready Weapon handler, for the pad's X while Mario is out: Skyrim would draw on the press, so the press is
 	// held back. Let go quickly: Mario dives. Held: the weapons are drawn or put away, once.
+	// Skyrim's Sprint handler: the left bumper (and the keyboard's sprint key) would make the hidden character sprint in the
+	// background, draining stamina, while Mario crouches or long-jumps. There is no sprint as Mario: every press is held back.
+	struct SprintHook
+	{
+		static void ProcessButton(RE::SprintHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
+		{
+			if (Mario::GetSingleton()->Active()) {
+				if (Config::telemetry && a_event && a_event->IsDown()) logger::info("SPRINT press held back (Mario is out)");
+				return;
+			}
+			original(a_this, a_event, a_data);
+		}
+		static inline REL::Relocation<decltype(ProcessButton)> original;
+	};
+
 	struct ReadyWeaponHook
 	{
 		static void ProcessButton(RE::ReadyWeaponHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
@@ -57,6 +72,8 @@ void Input::Register()
 	}
 	REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_ReadyWeaponHandler[0] };
 	ReadyWeaponHook::original = vtbl.write_vfunc(0x4, ReadyWeaponHook::ProcessButton);
+	REL::Relocation<std::uintptr_t> sprint{ RE::VTABLE_SprintHandler[0] };
+	SprintHook::original = sprint.write_vfunc(0x4, SprintHook::ProcessButton);
 }
 
 RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*)

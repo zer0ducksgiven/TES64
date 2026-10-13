@@ -112,6 +112,17 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	Reactions::Tick(a_player, a_delta);
 	Music::Tick(a_player, a_delta);
 	Aim::Tick(a_player);
+	// Mario crouching or crawling is the player sneaking: stealth, detection and sneak attacks follow (Skyrim's own Sneak
+	// control is taken by Mario's Z). Flagged on the actor, since the hidden character never plays the sneak.
+	{
+		const auto act = _state.action;
+		const bool sneak = act == 0x0C008220 || act == 0x0C008221 || act == 0x0C008223 || act == 0x04008448;   // crouching, start crouching, start crawling, crawling
+		auto       state = a_player->AsActorState();
+		if (state && state->actorState1.sneaking != (sneak ? 1u : 0u)) {
+			state->actorState1.sneaking = sneak ? 1u : 0u;
+			if (Config::telemetry) logger::info("SNEAK {}", sneak ? "on" : "off");
+		}
+	}
 
 	// Skyrim moved the player (a door, fast travel, coc, a script): Mario follows instead of dragging them back
 	// (a door can put the player down less than 300 units away, across a worldspace or cell change: that's a move too)
@@ -406,6 +417,7 @@ void Mario::Disable()
 	Coins::Reset();
 	Music::Reset();
 	Aim::Reset();
+	if (auto p = RE::PlayerCharacter::GetSingleton(); p && p->AsActorState()) p->AsActorState()->actorState1.sneaking = 0;
 	Objects::Hide();
 	Pose::Reset();
 	Render::Hide();
