@@ -280,6 +280,8 @@ namespace
 	// bodies the game's own ground rays hit that the stream missed (they sit outside the lists it reads: animated
 	// statics, odd layers). Added on sight, and only found again through the world's islands (never trusted blind).
 	std::unordered_set<const hkpEntity*> s_forced;
+	int  s_skipDoors = 0;         // debug: 1 = door bodies left out, 2 = only layer-2 (leaf) bodies left out
+	bool s_boxDoors = false;      // debug: the old way, every door body a box
 	bool s_hideStatics = false;   // debug: the stream withholds ordinary static collision (as a late-loading cell would), so the self-heal is what finds ground
 
 	bool Wanted(COL_LAYER a_layer)
@@ -318,7 +320,7 @@ namespace
 	}
 
 	// every loaded door's rigid bodies within the radius of the player
-	void ForEachDoorBody(RE::PlayerCharacter* a_player, float a_radius, const std::function<void(const RE::hkpRigidBody*)>& a_fn)
+	void ForEachDoorBody(RE::PlayerCharacter* a_player, float a_radius, const std::function<void(const RE::hkpRigidBody*, bool)>& a_fn)
 	{
 		auto tes = RE::TES::GetSingleton();
 		if (!tes) return;
@@ -326,8 +328,9 @@ namespace
 		tes->ForEachReferenceInRange(a_player, a_radius, [&](RE::TESObjectREFR* ref) {
 			auto base = ref->GetBaseObject();
 			if (!base || !base->Is(RE::FormType::Door)) return RE::BSContainer::ForEachResult::kContinue;
+			const bool open = RE::BGSOpenCloseForm::GetOpenState(ref) == RE::BGSOpenCloseForm::OPEN_STATE::kOpen;
 			VisitCollisionObjects(ref->Get3D(), [&](RE::NiAVObject*, RE::NiCollisionObject* col) {
-				if (auto body = BodyOf(col); body && seen.insert(body).second) a_fn(body);
+				if (auto body = BodyOf(col); body && seen.insert(body).second) a_fn(body, open);
 			});
 			return RE::BSContainer::ForEachResult::kContinue;
 		});
@@ -426,10 +429,13 @@ namespace Collision
 			// once he is within his radius of both faces (the back face pushes him on). Half 30 > his 24-unit radius.
 			const float minHalf = 30.0f * toHavok;
 			std::unordered_set<const hkpEntity*> doorSet;
-			ForEachDoorBody(player, a_radius + 500.0f, [&](const hkpRigidBody* body) {
+			ForEachDoorBody(player, a_radius + 500.0f, [&](const hkpRigidBody* body, bool open) {
 				doorSet.insert(body);
 				auto shape = body->collidable.shape;
 				if (!ValidShape(shape) || !Wanted(body->collidable.GetCollisionLayer())) return;
+				// a body the game has taken out of its physics world (a door's frame piece while it stands open) blocks nothing
+				if (!body->world) return;
+				if (s_skipDoors == 1 || (s_skipDoors == 2 && static_cast<int>(body->collidable.GetCollisionLayer()) == 2) || (s_skipDoors == 3 && static_cast<int>(body->collidable.GetCollisionLayer()) == 1)) return;
 				hkTransform id;
 				id.rotation.col0 = hkVector4(1.0f, 0.0f, 0.0f, 0.0f);
 				id.rotation.col1 = hkVector4(0.0f, 1.0f, 0.0f, 0.0f);
@@ -441,6 +447,13 @@ namespace Collision
 				V3       half{ (lmx.x - lmn.x) / 2, (lmx.y - lmn.y) / 2, (lmx.z - lmn.z) / 2 };
 				const V3 centre{ (lmx.x + lmn.x) / 2, (lmx.y + lmn.y) / 2, (lmx.z + lmn.z) / 2 };
 				float*   thin = half.x <= half.y && half.x <= half.z ? &half.x : half.y <= half.z ? &half.y : &half.z;
+				// not a slab: a gate's frame or a doorway's casing (a body with an opening in it) is read as it is, like a static,
+				// because a box over it would wall up the opening
+				if (!s_boxDoors && (open || *thin * 2.0f > 45.0f * toHavok)) {
+					consider(body);
+					stats.doors++;
+					return;
+				}
 				*thin = std::max(*thin, minHalf);
 				Xf x = Xf::From(body->motion.motionState.transform);
 				x.t = x.Apply(centre);
@@ -479,6 +492,9 @@ namespace Collision
 
 namespace Collision
 {
+	void DebugBoxDoors(bool a_box) { s_boxDoors = a_box; s_cache.clear(); }
+	void DebugSkipDoors(int a_mode) { s_skipDoors = a_mode; s_cache.clear(); }
+
 	void DebugHideStatics(bool a_hide)
 	{
 		s_hideStatics = a_hide;
@@ -537,7 +553,10 @@ namespace Collision
 			_mm_store_ps(f, t.translation.quad);
 			for (int i = 0; i < 3; i++) h = (h ^ static_cast<std::uint64_t>(std::lround(f[i] * 200.0f) + 100000)) * 1099511628211ull;
 		};
-		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body) { mix(body->motion.motionState.transform); });
+		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body, bool open) {
+			if (body->world) mix(body->motion.motionState.transform);
+			if (open) mix(body->motion.motionState.transform);
+		});
 		// animated statics near enough to matter (a mill far off turning must not keep re-streaming the world)
 		auto cell = a_player->GetParentCell();
 		auto bhk = cell ? cell->GetbhkWorld() : nullptr;
@@ -557,7 +576,7 @@ namespace Collision
 	void LogDoorBodies(RE::PlayerCharacter* a_player, float a_radius)
 	{
 		const float toGame = 1.0f / RE::bhkWorld::GetWorldScale();
-		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body) {
+		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body, bool) {
 			const auto& t = body->motion.motionState.transform;
 			RE::hkAabb  box;
 			body->collidable.shape->GetAabbImpl(t, 0.0f, box);
@@ -565,6 +584,23 @@ namespace Collision
 			logger::info("DOORBODY at=({:.0f},{:.0f},{:.0f}) box=({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f}) layer={} shape={}",
 				tr.x * toGame, tr.y * toGame, tr.z * toGame, mn.x * toGame, mn.y * toGame, mn.z * toGame, mx.x * toGame, mx.y * toGame, mx.z * toGame,
 				static_cast<int>(body->collidable.GetCollisionLayer()), static_cast<int>(body->collidable.shape->type));
+		});
+	}
+
+	void LogRefBodies(RE::TESObjectREFR* a_ref)
+	{
+		const float toGame = 1.0f / RE::bhkWorld::GetWorldScale();
+		VisitCollisionObjects(a_ref->Get3D(), [&](RE::NiAVObject* node, RE::NiCollisionObject* col) {
+			auto body = BodyOf(col);
+			if (!body || !body->collidable.shape) { logger::info("REFBODY node={} no body", node ? node->name.c_str() : "?"); return; }
+			const auto& t = body->motion.motionState.transform;
+			RE::hkAabb  box;
+			body->collidable.shape->GetAabbImpl(t, 0.0f, box);
+			V3 mn = Load(box.min), mx = Load(box.max);
+			logger::info("REFBODY node={} layer={} motion={} shape={} box=({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f}) wanted={} valid={} nodeWorld=({:.0f},{:.0f},{:.0f})",
+				node ? node->name.c_str() : "?", static_cast<int>(body->collidable.GetCollisionLayer()), static_cast<int>(body->motion.type.get()), static_cast<int>(body->collidable.shape->type),
+				mn.x * toGame, mn.y * toGame, mn.z * toGame, mx.x * toGame, mx.y * toGame, mx.z * toGame, Wanted(body->collidable.GetCollisionLayer()), ValidShape(body->collidable.shape),
+				node ? node->world.translate.x : 0.0f, node ? node->world.translate.y : 0.0f, node ? node->world.translate.z : 0.0f);
 		});
 	}
 

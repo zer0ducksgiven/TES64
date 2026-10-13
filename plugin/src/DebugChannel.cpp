@@ -48,6 +48,7 @@ void DebugChannel::Poll()
 						auto p = ref->GetPosition();
 						logger::info("DOOR {:08X} ({:.0f},{:.0f},{:.0f}) open={} name={}", ref->GetFormID(), p.x, p.y, p.z,
 							RE::BGSOpenCloseForm::GetOpenState(ref) == RE::BGSOpenCloseForm::OPEN_STATE::kOpen ? 1 : 0, std::string(ref->GetName()));
+						if (ref->Get3D()) Collision::LogRefBodies(ref);
 					}
 					return RE::BSContainer::ForEachResult::kContinue;
 				});
@@ -170,10 +171,40 @@ void DebugChannel::Poll()
 		} else if (cmd == "hidestatics") {
 			Collision::DebugHideStatics(arg == "1");
 			logger::info("debug: hidestatics {}", arg);
+		} else if (cmd == "skipdoors") {
+			Collision::DebugSkipDoors(std::stoi(arg));
+			logger::info("debug: skipdoors {}", arg);
+		} else if (cmd == "boxdoors") {
+			Collision::DebugBoxDoors(arg == "1");
+			logger::info("debug: boxdoors {}", arg);
 		} else if (cmd == "dropout") {
 			Mario::GetSingleton()->DebugDropOut();
 		} else if (cmd == "floorscan") {
 			Mario::GetSingleton()->FloorScan(player, arg.empty() ? 1500.0f : std::stof(arg));
+		} else if (cmd == "findmodel") {
+			// references within 8000 units whose model path contains arg (case-insensitive)
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				std::string want = arg;
+				for (auto& ch : want) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+				tes->ForEachReferenceInRange(player, 8000.0f, [&](RE::TESObjectREFR* ref) {
+					auto base = ref->GetBaseObject();
+					auto model = base ? base->As<RE::TESModel>() : nullptr;
+					if (model) {
+						std::string path = model->GetModel();
+						for (auto& ch : path) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+						if (path.find(want) != std::string::npos) {
+							auto p = ref->GetPosition();
+							logger::info("MODEL {:08X} {} ({:.0f},{:.0f},{:.0f}) type={} 3d={}", ref->GetFormID(), model->GetModel(), p.x, p.y, p.z, static_cast<int>(base->GetFormType()), ref->Get3D() != nullptr);
+							if (ref->Get3D()) Collision::LogRefBodies(ref);
+						}
+					}
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			}
+		} else if (cmd == "raywalls") {
+			Mario::GetSingleton()->RayWalls(player, arg.empty() ? 250.0f : std::stof(arg));
+		} else if (cmd == "wallscan") {
+			Mario::GetSingleton()->WallScan(player, arg.empty() ? 400.0f : std::stof(arg));
 		} else if (cmd == "activebodies") {
 			Collision::LogActiveBodies(player, arg.empty() ? 1500.0f : std::stof(arg));
 		} else if (cmd == "colbodies") {

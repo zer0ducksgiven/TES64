@@ -41,6 +41,8 @@ namespace Collision
 	// ground a_missing says SM64 lacks, the body is added to what the stream reads. Returns the bodies added.
 	int Heal(RE::PlayerCharacter* a_player, const std::vector<RE::NiPoint3>& a_points, const std::function<bool(const RE::NiPoint3&)>& a_missing, float a_above = 300.0f);
 
+	void DebugSkipDoors(int a_mode);
+	void DebugBoxDoors(bool a_box);   // debug: every door body as a fattened box (how it used to be)
 	void DebugHideStatics(bool a_hide);   // debug: the stream withholds static collision until the self-heal asks for it
 
 	// a number that changes whenever a door near the player moves (swings, opens, closes)
@@ -48,4 +50,5 @@ namespace Collision
 
 	// debug: each door body's place and size as Havok has it (Skyrim units)
 	void LogDoorBodies(RE::PlayerCharacter* a_player, float a_radius);
+	void LogRefBodies(RE::TESObjectREFR* a_ref);   // debug: the rigid bodies hanging off one reference
 }

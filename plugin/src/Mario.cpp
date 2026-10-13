@@ -614,6 +614,62 @@ void Mario::FloorScan(RE::PlayerCharacter* a_player, float a_radius)
 	logger::info("FLOORSCAN {} slabs, {} without a floor at their top", total, bad);
 }
 
+void Mario::RayWalls(RE::PlayerCharacter* a_player, float a_range)
+{
+	if (!Active() || !Sm64::find_wall_collision) return;
+	auto cell = a_player->GetParentCell();
+	auto bhk = cell ? cell->GetbhkWorld() : nullptr;
+	if (!bhk) return;
+	const auto  p = a_player->GetPosition();
+	const float s = RE::bhkWorld::GetWorldScale();
+	for (int i = 0; i < 24; i++) {
+		const float ang = i * 0.261799f, dx = std::cos(ang), dy = std::sin(ang);
+		float       skyrim = -1.0f;
+		int         layer = -1;
+		{
+			RE::BSReadLockGuard lock(bhk->worldLock);
+			RE::bhkPickData     pick;
+			pick.rayInput.from = RE::hkVector4(p.x * s, p.y * s, (p.z + 60.0f) * s, 0.0f);
+			pick.rayInput.to = RE::hkVector4((p.x + dx * a_range) * s, (p.y + dy * a_range) * s, (p.z + 60.0f) * s, 0.0f);
+			pick.rayInput.filterInfo.SetCollisionLayer(RE::COL_LAYER::kCharController);
+			if (bhk->PickObject(pick) && pick.rayOutput.HasHit()) {
+				skyrim = pick.rayOutput.hitFraction * a_range;
+				if (pick.rayOutput.rootCollidable) layer = static_cast<int>(pick.rayOutput.rootCollidable->GetCollisionLayer());
+			}
+		}
+		float sm64 = -1.0f;
+		for (float d = 10.0f; d < a_range; d += 5.0f) {
+			auto  sm = ToSm64({ p.x + dx * d, p.y + dy * d, p.z + 30.0f });
+			float sx = sm[0], sy = sm[1], sz = sm[2];
+			if (Sm64::lock) Sm64::lock();
+			const int hit = Sm64::find_wall_collision(&sx, &sy, &sz, 60.0f, 24.0f);
+			if (Sm64::unlock) Sm64::unlock();
+			if (hit) { sm64 = d; break; }
+		}
+		logger::info("RAYWALL dir={:3.0f} skyrim={:.0f}(layer {}) sm64={:.0f}", ang * 57.2958f, skyrim, layer, sm64);
+	}
+}
+
+void Mario::WallScan(RE::PlayerCharacter* a_player, float a_radius)
+{
+	if (!Active() || !Sm64::find_wall_collision) return;
+	const auto  p = a_player->GetPosition();
+	const float step = a_radius / 16.0f;
+	logger::info("WALLSCAN centre=({:.0f},{:.0f},{:.0f}) step={:.0f} north up, '#' = a wall at Mario's chest height", p.x, p.y, p.z, step);
+	for (float y = a_radius; y >= -a_radius; y -= step) {
+		std::string row;
+		for (float x = -a_radius; x <= a_radius; x += step) {
+			auto  sm = ToSm64({ p.x + x, p.y + y, p.z + 30.0f });
+			float sx = sm[0], sy = sm[1], sz = sm[2];
+			if (Sm64::lock) Sm64::lock();
+			const int hit = Sm64::find_wall_collision(&sx, &sy, &sz, 60.0f, 24.0f);
+			if (Sm64::unlock) Sm64::unlock();
+			row += hit ? '#' : (x == 0.0f && y == 0.0f ? '+' : '.');
+		}
+		logger::info("WALL {}", row);
+	}
+}
+
 void Mario::UpdateWater(RE::PlayerCharacter* a_player)
 {
 	float level = -1e6f;
