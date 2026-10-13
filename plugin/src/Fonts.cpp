@@ -2,6 +2,7 @@
 #include "Config.h"
 
 #include <fstream>
+#include <iterator>
 #include <sstream>
 
 namespace
@@ -35,6 +36,34 @@ validNameChars "` 1234567890-=~!@#$%^&*():_+QWERTYUIOP[]ASDFGHJKL;'ZXCVBNM,./qwe
 )";
 }
 
+namespace
+{
+	// SM64's dialogue font as a Skyrim font file, made from the player's own ROM by sm64.dll (the same code the installer's
+	// tes64_fontgen.exe runs). No font file ships with TES64; this is the fallback for a manual install, or if the
+	// installer's step was skipped.
+	bool MakeFontFromRom(const std::filesystem::path& a_swf)
+	{
+		if (Config::romPath.empty()) return false;
+		std::ifstream f(std::filesystem::path(Config::romPath), std::ios::binary);
+		if (!f) return false;
+		std::vector<std::uint8_t> rom((std::istreambuf_iterator<char>(f)), {});
+		HMODULE                   dll = ::LoadLibraryW(L"Data/SKSE/Plugins/TES64/sm64.dll");
+		if (!dll || rom.size() != 8 * 1024 * 1024) return false;
+		auto normalize = reinterpret_cast<int (*)(std::uint8_t*, std::size_t)>(::GetProcAddress(dll, "tes64_rom_normalize"));
+		auto generate = reinterpret_cast<int (*)(const std::uint8_t*, std::size_t, const char*)>(::GetProcAddress(dll, "tes64_font_generate"));
+		auto error = reinterpret_cast<const char* (*)()>(::GetProcAddress(dll, "tes64_font_error"));
+		if (!normalize || !generate || !normalize(rom.data(), rom.size())) return false;
+		std::error_code ec;
+		std::filesystem::create_directories(a_swf.parent_path(), ec);
+		if (!generate(rom.data(), rom.size(), a_swf.string().c_str())) {
+			logger::warn("fonts: couldn't make the SM64 font from the ROM: {}", error ? error() : "?");
+			return false;
+		}
+		logger::info("fonts: SM64's font made from your ROM");
+		return true;
+	}
+}
+
 void Fonts::Apply()
 {
 	const std::filesystem::path file{ "Data/Interface/fontconfig.txt" }, swf{ "Data/Interface/fonts_tes64.swf" };
@@ -51,8 +80,8 @@ void Fonts::Apply()
 			logger::warn("fonts: Data/Interface/fontconfig.txt belongs to another mod, so Skyrim keeps its fonts");
 			return;
 		}
-		if (!std::filesystem::exists(swf, ec)) {
-			logger::warn("fonts: Data/Interface/fonts_tes64.swf is missing (reinstall TES64)");
+		if (!std::filesystem::exists(swf, ec) && !MakeFontFromRom(swf)) {
+			logger::warn("fonts: no SM64 font (Data/Interface/fonts_tes64.swf) and it couldn't be made from the ROM, so Skyrim keeps its fonts");
 			return;
 		}
 		std::ofstream out(file, std::ios::trunc);

@@ -50,9 +50,8 @@ Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64\sm64.dll"; DestDir: "{app}\Data\S
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64.ini"; DestDir: "{app}\Data\SKSE\Plugins"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#Dist}\TES64\Data\meshes\TES64\*"; DestDir: "{app}\Data\meshes\TES64"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\textures\TES64\*"; DestDir: "{app}\Data\textures\TES64"; Flags: ignoreversion
-#ifexist "..\dist\TES64\Data\Interface\fonts_tes64.swf"
-Source: "{#Dist}\TES64\Data\Interface\fonts_tes64.swf"; DestDir: "{app}\Data\Interface"; Flags: ignoreversion
-#endif
+; SM64's font for Skyrim's text is made at install from the player's own ROM by this helper (nothing of the font ships)
+Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64\tes64_fontgen.exe"; DestDir: "{app}\Data\SKSE\Plugins\TES64"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\TES64.esp"; DestDir: "{app}\Data"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\MCM\Config\TES64\*"; DestDir: "{app}\Data\MCM\Config\TES64"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{localappdata}\TES64"; Flags: ignoreversion
@@ -257,6 +256,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Dest: String;
+  FontResult: Integer;
 begin
   if CurStep = ssInstall then
     ForceDirectories(ExpandConstant('{localappdata}\TES64'));
@@ -266,6 +266,11 @@ begin
     Dest := GetRomDest('');
     if not FileCopy(RomPage.Values[0], Dest, False) then
       SuppressibleMsgBox('Your ROM couldn''t be copied to ' + Dest + '. Copy it there yourself, or run the installer again.', mbError, MB_OK, IDOK);
+    // Skyrim's text in Super Mario 64's own dialogue font, read out of the ROM. If this fails the plugin tries again when
+    // the game starts (and Skyrim keeps its own fonts if it can't).
+    ForceDirectories(ExpandConstant('{app}\Data\Interface'));
+    if (not Exec(ExpandConstant('{app}\Data\SKSE\Plugins\TES64\tes64_fontgen.exe'), '"' + Dest + '" "' + ExpandConstant('{app}\Data\Interface\fonts_tes64.swf') + '"', '', SW_HIDE, ewWaitUntilTerminated, FontResult)) or (FontResult <> 0) then
+      SuppressibleMsgBox('The Super Mario 64 font couldn''t be made from your ROM, so Skyrim will keep its own fonts.', mbInformation, MB_OK, IDOK);
     if not FileExists(ExpandConstant('{app}\Data\SKSE\Plugins\versionlib-1-7-104-0.bin')) and
        not FileExists(ExpandConstant('{app}\Data\SKSE\Plugins\versionlib-1-6-1170-0.bin')) and
        not FileExists(ExpandConstant('{app}\Data\SKSE\Plugins\version-1-5-97-0.bin')) then

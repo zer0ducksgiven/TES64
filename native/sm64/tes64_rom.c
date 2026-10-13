@@ -7,6 +7,12 @@ int ng64_rom_normalize(uint8_t *rom, size_t len);
 int ng64_load_mario_from_rom(const uint8_t *rom, size_t romLen);
 const char *ng64_mario_rom_error(void);
 
+int fontgen_make(const uint8_t *rom, size_t len, const char *outPath);
+const char *fontgen_error(void);
+// SM64's dialogue font as a Skyrim font file, from the (normalized) ROM
+SM64_LIB_FN int tes64_font_generate(const uint8_t *rom, size_t len, const char *outPath) { return fontgen_make(rom, len, outPath); }
+SM64_LIB_FN const char *tes64_font_error(void) { return fontgen_error(); }
+
 SM64_LIB_FN int tes64_rom_normalize(uint8_t *rom, size_t len) { return ng64_rom_normalize(rom, len); }
 SM64_LIB_FN int tes64_load_mario_model(const uint8_t *rom, size_t len) { return ng64_load_mario_from_rom(rom, len); }
 SM64_LIB_FN const char *tes64_rom_error(void) { return ng64_mario_rom_error(); }

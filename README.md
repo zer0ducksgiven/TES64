@@ -29,7 +29,7 @@ your PC, when the game starts. The installer asks for it.
 - **Power Stars**: complete a quest as Mario and a Power Star appears nearby. Touch it for the star dance, the jingle and
   a full heal.
 - **Gold from the dead** floats out of the body as spinning SM64 coins.
-- **Mario's voice and SM64's sounds**, from the ROM. Skyrim's text in the SM64 font (optional: see Building).
+- **Mario's voice and SM64's sounds**, from the ROM. Skyrim's text in SM64's own dialogue font: the installer reads the font out of your ROM and builds a Skyrim font file from it (nothing of the font ships).
 
 ## Requirements
 - Skyrim Special Edition / Anniversary Edition (Steam; developed on 1.7.104)
@@ -72,9 +72,10 @@ settings menu). Uninstall from Windows' Installed apps.
 3. `plugin/`: from a VS 2022 developer shell, `cmake --preset release && cmake --build --preset release`.
 4. `./package.sh` generates the template meshes and the ESP (`tools/`), assembles `dist/` and builds the installer
    (Inno Setup 6). `TES64_RELEASE=1 ./package.sh` is the build for publishing.
-5. **The SM64 font** (optional): put a TrueType pixel font named `Mario64.ttf` beside `package.sh` and it is converted
-   into a Skyrim font file (`tools/make_font_swf.py`; needs `pip install fonttools skia-pathops`). Without it the
-   game keeps its own fonts. The font is not part of this repository.
+5. **The SM64 font** needs nothing from you: `native/sm64/fontgen.c` (built into `sm64.dll`, and as `tes64_fontgen.exe` for
+   the installer) reads the US dialogue font's glyphs out of the ROM and writes Skyrim's font file
+   (`Data/Interface/fonts_tes64.swf`). The installer runs it after you pick your ROM; if that was skipped, the plugin makes
+   the file from your ROM when the game starts. If it can't, Skyrim keeps its own fonts.
 
 For a private test build, `./package.sh` (without `TES64_RELEASE`) also bundles SKSE64 and Address Library into the
 installer if the SKSE `.7z` is in the repository folder and Address Library is in your Skyrim. Neither may be
