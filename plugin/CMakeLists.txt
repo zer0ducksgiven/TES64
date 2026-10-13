@@ -23,6 +23,7 @@ add_commonlibsse_plugin(TES64
 		src/Collision.cpp
 		src/Render.cpp
 		src/Camera.cpp
+		src/Music.cpp
 		src/Combat.cpp
 		src/Arms.cpp
 		src/DebugChannel.cpp

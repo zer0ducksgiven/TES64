@@ -1,5 +1,6 @@
 #include "Hud.h"
 #include "Config.h"
+#include "Sm64.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -22,11 +23,15 @@ namespace
 		int  stars = 0;
 		float heading = 0.0f;   // the camera's, radians: 0 north, + clockwise (east)
 		bool compass = false;
+		float wipe = -1.0f;   // the Bowser screen wipe, 0 (open) to 1 (closed); below 0: none
 		// where Skyrim's compass is on screen (pixels; x1 <= x0: not found): Mario's is drawn there, under its markers
 		float compassX0 = 0.0f, compassX1 = 0.0f, compassY = 0.0f, compassPerRadian = 0.0f;
 	};
 	std::mutex s_lock;
 	State      s_state;
+	bool       s_forceWipe = false;   // debug: the wipe without dying
+	// SOUND_OBJ_BOWSER_LAUGH: bank 5, id 0x38, priority 0x80 (what SM64 plays as the wipe starts)
+	constexpr std::uint32_t kSoundBowserLaugh = (5u << 28) | (0u << 24) | (0x38u << 16) | (0x80u << 8) | (8u << 4) | 1u;
 
 	// ---- graphics from the ROM --------------------------------------------------------------------------------
 	struct Image
@@ -240,6 +245,33 @@ namespace
 		for (IUnknown* u : std::initializer_list<IUnknown*>{ oldRtv, oldDsv, oldBlend, oldDepth, oldRaster, oldLayout, oldVb, oldVs, oldPs, oldSrv, oldSampler })
 			if (u) u->Release();
 		rtv->Release();
+	}
+
+	const Image* Img(const std::string& a_name);
+
+	// SM64's death wipe: the screen goes black but for Bowser's face, which closes to nothing
+	std::vector<Quad> WipeLayout(float a_t, float W, float H)
+	{
+		std::vector<Quad> q;
+		auto face = Img("wipe_bowser_big"), black = Img("wipe_black");
+		if (!face || !black) return q;
+		const float e = a_t * a_t * (3.0f - 2.0f * a_t);   // eased
+		const float size = H * 3.2f * (1.0f - e);
+		const float cx = W / 2, cy = H / 2;
+		const float fx = cx - size / 2, fy = cy - size / 2;
+		auto rect = [&](float x, float y, float w, float h) {
+			if (w > 0.5f && h > 0.5f) q.push_back({ black, x, y, w, h });
+		};
+		if (size < 2.0f) {
+			rect(0, 0, W, H);
+			return q;
+		}
+		q.push_back({ face, fx, fy, size, size });
+		rect(0, 0, std::max(0.0f, fx), H);
+		rect(fx + size, 0, W - fx - size, H);
+		rect(std::max(0.0f, fx), 0, size, std::max(0.0f, fy));
+		rect(std::max(0.0f, fx), fy + size, size, H - fy - size);
+		return q;
 	}
 
 	const Image* Img(const std::string& a_name)
@@ -460,7 +492,7 @@ namespace
 			std::scoped_lock l(s_lock);
 			st = s_state;
 		}
-		if (st.show && !s_gpuFailed) {
+		if ((st.show || st.wipe >= 0.0f) && !s_gpuFailed) {
 			if (!s_gpuReady) {
 				s_gpuReady = CreateGpu(a_swap);
 				s_gpuFailed = !s_gpuReady;
@@ -472,7 +504,8 @@ namespace
 				const auto start = std::chrono::steady_clock::now();
 				s_backWidth = d.BufferDesc.Width;
 				s_backHeight = d.BufferDesc.Height;
-				Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
+				if (st.show) Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
+				if (st.wipe >= 0.0f) Draw(a_swap, WipeLayout(st.wipe, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
 				if (s_snapRequested.exchange(false)) Snapshot(a_swap);
 				s_drawMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 				s_drawFrames++;
@@ -632,7 +665,7 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 		logger::error("hud: couldn't read SM64's HUD graphics from the ROM");
 		return false;
 	}
-	std::vector<std::string> names = { "times", "coin", "mario", "star", "meter_left", "meter_right" };
+	std::vector<std::string> names = { "times", "coin", "mario", "star", "meter_left", "meter_right", "wipe_bowser" };
 	for (int i = 0; i <= 9; i++) names.push_back("digit_" + std::to_string(i));
 	for (int i = 1; i <= 8; i++) names.push_back("pie_" + std::to_string(i));
 	for (char c : std::string("AEFGIKLMNSTW")) names.push_back(std::string("letter_") + c);
@@ -681,11 +714,30 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 			if (it != s_images.end()) s_images[n + "|" + t->key] = Tinted(it->second, *t);
 		}
 	}
+	// the Bowser wipe: the ROM's 64x64 face smoothed up (the N64 filtered it) so it can be blown up to the screen
+	if (auto it = s_images.find("wipe_bowser"); it != s_images.end()) {
+		const int N = 512;
+		Image     big{ N, N, std::vector<std::uint8_t>(N * N * 4, 0), nullptr };
+		const auto& src = it->second;
+		for (int y = 0; y < N; y++)
+			for (int x = 0; x < N; x++) {
+				const float fx = std::clamp((x + 0.5f) * src.w / N - 0.5f, 0.0f, src.w - 1.0f), fy = std::clamp((y + 0.5f) * src.h / N - 0.5f, 0.0f, src.h - 1.0f);
+				const int   x0 = static_cast<int>(fx), y0 = static_cast<int>(fy), x1 = std::min(x0 + 1, src.w - 1), y1 = std::min(y0 + 1, src.h - 1);
+				const float tx = fx - x0, ty = fy - y0;
+				auto        a = [&](int px, int py) { return static_cast<float>(src.rgba[(py * src.w + px) * 4 + 3]); };
+				const float v = (a(x0, y0) * (1 - tx) + a(x1, y0) * tx) * (1 - ty) + (a(x0, y1) * (1 - tx) + a(x1, y1) * tx) * ty;
+				big.rgba[(y * N + x) * 4 + 3] = static_cast<std::uint8_t>(v + 0.5f);
+			}
+		s_images["wipe_bowser_big"] = std::move(big);
+	}
+	s_images["wipe_black"] = Image{ 1, 1, { 0, 0, 0, 255 }, nullptr };
 	s_images["compass_bar"] = MakeCompassBar();
 	s_images["compass_pointer"] = MakePointer();
 	logger::info("hud: {} graphics from the ROM", s_images.size());
 	return !s_images.empty();
 }
+
+void Hud::DebugWipe(bool a_on) { s_forceWipe = a_on; }
 
 void Hud::RequestSnapshot() { s_snapRequested = true; }
 
@@ -773,6 +825,19 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 		s_vanillaHidden = false;
 	}
 
+	// Mario dies: the Bowser wipe closes over 48 SM64 frames, with his laugh, and holds
+	static float s_wipeT = -1.0f;
+	if (a_marioActive && ((Config::deathWipe && a_player->IsDead()) || s_forceWipe)) {
+		if (s_wipeT < 0.0f) {
+			s_wipeT = 0.0f;
+			if (Config::sounds && Sm64::play_sound) Sm64::play_sound(kSoundBowserLaugh);
+			logger::info("hud: Mario died, Bowser wipe");
+		}
+		s_wipeT += a_delta;
+	} else if (!s_forceWipe) {
+		s_wipeT = -1.0f;
+	}
+	const float wipe = s_wipeT < 0.0f ? -1.0f : std::min(s_wipeT / 1.6f, 1.0f);
 	auto ui = RE::UI::GetSingleton();
 	const bool menus = ui && (ui->GameIsPaused() || ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME) || ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
 	{
@@ -784,6 +849,7 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 		s_state.coins = std::max(0, s_coins);
 		s_state.stars = s_stars;
 		s_state.compass = Config::compass && a_marioActive;
+		s_state.wipe = wipe;
 		if (auto camera = RE::PlayerCamera::GetSingleton(); camera && camera->cameraRoot) {
 			const auto& r = camera->cameraRoot->world.rotate;   // its forward is the second column
 			s_state.heading = std::atan2(r.entry[0][1], r.entry[1][1]);

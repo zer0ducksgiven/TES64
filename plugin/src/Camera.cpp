@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include "Config.h"
 
 #include <unordered_map>
 
@@ -52,7 +53,7 @@ void Camera::Apply(float a_marioHeight)
 	Set("fOverShoulderPosX:Camera", 0.0f);
 	Set("fOverShoulderCombatPosX:Camera", 0.0f);
 	Set("fOverShoulderPosZ:Camera", drop);
-	Set("fOverShoulderCombatPosZ:Camera", drop);
+	Set("fOverShoulderCombatPosZ:Camera", drop + Config::combatCameraLift);
 	Set("fOverShoulderHorseAddY:Camera", 0.0f);
 
 	// pulled back far enough to see him: fully zoomed in, the camera sits on top of a 0.6x Mario

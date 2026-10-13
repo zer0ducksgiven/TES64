@@ -50,6 +50,23 @@ static void add_image(const char *name, const uint8_t *raw, int w, int h)
     free(px);
 }
 
+// the Bowser screen-wipe's face: a 32x64 IA8 half (the right half, its left edge the centre line) mirrored into 64x64. Black
+// where the screen is covered (the IA8 alpha), clear where the face lets the game show through.
+#define BOWSER_WIPE 0x14318
+static void add_wipe(const char *name, const uint8_t *raw)
+{
+    Image *im = &s_images[s_numImages++];
+    snprintf(im->name, sizeof(im->name), "%s", name);
+    im->w = 64; im->h = 64;
+    im->rgba = calloc(64 * 64, 4);
+    for (int y = 0; y < 64; y++)
+        for (int x = 0; x < 32; x++) {
+            uint8_t a = (raw[y * 32 + x] & 15) * 17;
+            uint8_t *r = &im->rgba[(y * 64 + 32 + x) * 4], *l = &im->rgba[(y * 64 + 31 - x) * 4];
+            r[3] = a; l[3] = a;
+        }
+}
+
 static uint8_t *unpack(const uint8_t *rom, size_t romLen, size_t off, uint32_t *size)
 {
     mio0_header_t head;
@@ -72,6 +89,7 @@ int ng64_hud_extract(const uint8_t *rom, size_t romLen)
             add_image(s_tiles[i].name, hud + s_tiles[i].tile * 0x200, 16, 16);
         add_image("meter_left", meter + METER_LEFT, 32, 64);
         add_image("meter_right", meter + METER_RIGHT, 32, 64);
+        if (hudSize >= BOWSER_WIPE + 0x800) add_wipe("wipe_bowser", hud + BOWSER_WIPE);
         for (int k = 0; k < 8; k++) {
             char name[16];
             snprintf(name, sizeof(name), "pie_%d", 8 - k);

@@ -174,6 +174,13 @@ void DebugChannel::Poll()
 		} else if (cmd == "skipdoors") {
 			Collision::DebugSkipDoors(std::stoi(arg));
 			logger::info("debug: skipdoors {}", arg);
+		} else if (cmd == "soundcats") {
+			if (auto data = RE::TESDataHandler::GetSingleton())
+				for (auto cat : data->GetFormArray<RE::BGSSoundCategory>())
+					if (cat) logger::info("SNCT {:08X} edid='{}' name='{}' vol={:.2f} parent={:08X}", cat->GetFormID(), cat->GetFormEditorID(), cat->GetName(), cat->GetCategoryVolume(), cat->parentCategory ? cat->parentCategory->GetFormID() : 0u);
+		} else if (cmd == "wipe") {
+			Hud::DebugWipe(arg == "1");
+			logger::info("debug: wipe {}", arg);
 		} else if (cmd == "boxdoors") {
 			Collision::DebugBoxDoors(arg == "1");
 			logger::info("debug: boxdoors {}", arg);

@@ -28,6 +28,9 @@ your PC, when the game starts. The installer asks for it.
   The crosshair hides while your weapons are away. Coins are your gold (picking gold up heals).
 - **Power Stars**: complete a quest as Mario and a Power Star appears nearby. Touch it for the star dance, the jingle and
   a full heal.
+- **SM64 music that follows the fight**: the boss theme while something fights you, Bowser's theme against dragons and
+  much stronger foes, fading out when it's over (Skyrim's own music is turned down meanwhile). Toggle it in the MCM.
+- **Death**: when Mario dies the screen closes on Bowser's face, with his laugh, as in SM64.
 - **Gold from the dead** floats out of the body as spinning SM64 coins.
 - **Mario's voice and SM64's sounds**, from the ROM. Skyrim's text in SM64's own dialogue font: the installer reads the font out of your ROM and builds a Skyrim font file from it (nothing of the font ships).
 
@@ -58,7 +61,8 @@ settings menu). Uninstall from Windows' Installed apps.
 | Shout, activate, menus | as in Skyrim | as in Skyrim |
 
 ## Settings
-`TES64.ini` or the MCM page: toggle and attack keys, Mario's size, attack damage, weapon size, body-pose and HUD options
+`TES64.ini` or the MCM page: toggle and attack keys, Mario's size, attack damage, weapon size, camera lift in combat,
+music and death-wipe toggles, body-pose and HUD options
 (HUD size, crosshair, compass, SM64 font), sounds and volume, NPC comments.
 
 ## Building from source

@@ -37,7 +37,9 @@ namespace Sm64
 	inline decltype(&sm64_surface_find_ceil)          find_ceil = nullptr;
 	inline decltype(&sm64_set_mario_action_arg)       set_mario_action_arg = nullptr;
 	inline decltype(&sm64_mario_heal)                 mario_heal = nullptr;
-	inline decltype(&sm64_ng64_music_play)            music_play = nullptr;   // sm64_ng64_play_sound: a sound from the ROM at Mario
+	inline decltype(&sm64_ng64_music_play)            music_play = nullptr;
+	inline decltype(&sm64_ng64_music_stop)            music_stop = nullptr;
+	inline decltype(&sm64_ng64_music_status)          music_status = nullptr;   // sm64_ng64_play_sound: a sound from the ROM at Mario
 	inline void (*lock)() = nullptr;
 	inline void (*unlock)() = nullptr;   // Mario's texture atlas, RGBA, from the ROM
 

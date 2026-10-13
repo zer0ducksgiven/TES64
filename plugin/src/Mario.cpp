@@ -10,6 +10,7 @@
 #include "Coins.h"
 #include "Objects.h"
 #include "Star.h"
+#include "Music.h"
 #include "DebugChannel.h"
 #include "Hud.h"
 #include "Caps.h"
@@ -101,6 +102,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	auto ui = RE::UI::GetSingleton();
 	if (ui && ui->GameIsPaused()) return;   // menus stop Mario with the game
 	Reactions::Tick(a_player, a_delta);
+	Music::Tick(a_player, a_delta);
 
 	// Skyrim moved the player (a door, fast travel, coc, a script): Mario follows instead of dragging them back
 	// (a door can put the player down less than 300 units away, across a worldspace or cell change: that's a move too)
@@ -393,6 +395,7 @@ void Mario::Disable()
 	Arms::Clear();
 	Star::Reset();
 	Coins::Reset();
+	Music::Reset();
 	Objects::Hide();
 	Pose::Reset();
 	Render::Hide();

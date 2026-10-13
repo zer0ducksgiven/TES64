@@ -1,6 +1,7 @@
 #include "Star.h"
 #include "Config.h"
 #include "Objects.h"
+#include "Music.h"
 
 #include <random>
 
@@ -89,7 +90,10 @@ namespace
 		s_phase = Phase::kFlying;
 		s_timer = 0;
 		s_scale = 1.0f;
-		if (Config::sounds && Sm64::music_play) Sm64::music_play(kSeqStarSpawn);
+		if (Config::sounds && Sm64::music_play) {
+			Sm64::music_play(kSeqStarSpawn);
+			Music::Hold(8.0f);
+		}
 		if (Config::telemetry) logger::info("STAR spawn from=({:.0f},{:.0f},{:.0f}) home=({:.0f},{:.0f},{:.0f})", s_from[0], s_from[1], s_from[2], home[0], home[1], home[2]);
 	}
 }
@@ -155,7 +159,10 @@ void Star::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM64M
 				if (Sm64::mario_heal) Sm64::mario_heal(a_mario, 31);
 				if (Sm64::set_mario_action_arg) Sm64::set_mario_action_arg(a_mario, grab, 1);
 				else Sm64::set_mario_action(a_mario, grab);
-				if (Config::sounds && Sm64::music_play) Sm64::music_play(kSeqCollectStar);
+				if (Config::sounds && Sm64::music_play) {
+					Sm64::music_play(kSeqCollectStar);
+					Music::Hold(12.0f);
+				}
 				// Skyrim's health back up too, as SM64's star heals
 				auto av = a_player->AsActorValueOwner();
 				av->RestoreActorValue(RE::ActorValue::kHealth, av->GetPermanentActorValue(RE::ActorValue::kHealth));

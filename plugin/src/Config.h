@@ -19,6 +19,9 @@ namespace Config
 	inline bool          compass = true;         // [HUD] bCompass: the SM64-style compass instead of Skyrim's
 	inline bool          sm64Fonts = true;       // [HUD] bSM64Fonts: Skyrim's text in the SM64 font (after a restart)
 	inline bool          bodyPose = true;        // [Mario] bBodyPose: Skyrim's torso and head movement on Mario during attacks
+	inline bool          music = true;           // [Mario] bMusic: SM64 music that follows what you're doing (combat, bosses)
+	inline float         combatCameraLift = 60.0f;   // [Mario] fCombatCameraLift: Skyrim units the camera aims above Mario's head with weapons drawn, so the crosshair clears him
+	inline bool          deathWipe = true;       // [Mario] bDeathWipe: the Bowser screen wipe and laugh when Mario dies
 	inline bool          reactions = true;       // [Mario] bNPCReactions: people comment on the plumber
 	inline bool          telemetry = false;
 	inline int           renderTest = 0;         // [Debug] iRenderTest: 1 = draw a test cube instead of Mario      // [Debug] bTelemetry: state lines in TES64.log, for the UAT harness

@@ -52,6 +52,8 @@ bool Sm64::Init()
 	set_mario_action_arg = reinterpret_cast<decltype(set_mario_action_arg)>(::GetProcAddress(dll, "sm64_set_mario_action_arg"));
 	mario_heal = reinterpret_cast<decltype(mario_heal)>(::GetProcAddress(dll, "sm64_mario_heal"));
 	music_play = reinterpret_cast<decltype(music_play)>(::GetProcAddress(dll, "sm64_ng64_music_play"));
+	music_stop = reinterpret_cast<decltype(music_stop)>(::GetProcAddress(dll, "sm64_ng64_music_stop"));
+	music_status = reinterpret_cast<decltype(music_status)>(::GetProcAddress(dll, "sm64_ng64_music_status"));
 
 	std::ifstream f(std::filesystem::path(Config::romPath), std::ios::binary);
 	if (Config::romPath.empty() || !f) {
