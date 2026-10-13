@@ -69,6 +69,7 @@ private:
 	RE::bhkWorld*        _streamWorld = nullptr;
 	bool                 _streamed = false;
 	RE::NiPoint3         _lastSet;
+	const void*          _lastPlace = nullptr;   // the interior cell, or the worldspace outside: a door between them is a move however short
 	bool                 _haveLastSet = false;
 	bool                 _respawnPending = false;
 	SM64MarioState       _state{};

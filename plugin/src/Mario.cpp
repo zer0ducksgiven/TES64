@@ -103,7 +103,13 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	Reactions::Tick(a_player, a_delta);
 
 	// Skyrim moved the player (a door, fast travel, coc, a script): Mario follows instead of dragging them back
-	if (_haveLastSet && a_player->GetPosition().GetDistance(_lastSet) > 300.0f) _respawnPending = true;
+	// (a door can put the player down less than 300 units away, across a worldspace or cell change: that's a move too)
+	const void* place = [&]() -> const void* {
+		auto cell = a_player->GetParentCell();
+		if (cell && cell->IsInteriorCell()) return cell;
+		return a_player->GetWorldspace();
+	}();
+	if (_haveLastSet && (a_player->GetPosition().GetDistance(_lastSet) > 300.0f || place != _lastPlace)) _respawnPending = true;
 	if (_respawnPending) {
 		// a door or fast travel puts the player down in steps (the marker, then where the game settles them): wait until
 		// they've stopped moving for a moment, so Mario starts where Skyrim's character ends up, not at the door
@@ -158,6 +164,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	Pose::Compute(a_player, alpha, _state.faceAngle);   // Skyrim's upper-body animation on Mario for this frame
 	if (!Pose::Mirroring()) a_player->SetPosition(pos, true);
 	_lastSet = a_player->GetPosition();
+	_lastPlace = place;
 	_haveLastSet = true;
 	if (auto controller = a_player->GetCharController()) controller->fallStartHeight = pos.z;
 	// not the heading: Skyrim's third-person camera follows the player's heading, so turning the player with Mario
