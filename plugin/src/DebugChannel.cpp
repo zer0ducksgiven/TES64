@@ -33,6 +33,13 @@ void DebugChannel::Poll()
 			auto shout = RE::TESForm::LookupByID<RE::TESShout>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
 			if (shout && player) RE::ActorEquipManager::GetSingleton()->EquipShout(player, shout);
 			logger::info("debug: equipshout {} -> {}", arg, shout ? "ok" : "no such shout");
+		} else if (cmd == "equipspell") {
+			auto spell = RE::TESForm::LookupByID<RE::SpellItem>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
+			if (spell && player) {
+				player->AddSpell(spell);
+				RE::ActorEquipManager::GetSingleton()->EquipSpell(player, spell, RE::TESForm::LookupByID<RE::BGSEquipSlot>(0x00013F42));
+			}
+			logger::info("debug: equipspell {} -> {}", arg, spell ? "ok" : "no such spell");
 		} else if (cmd == "cast") {
 			// the player casts it on themselves, through the game's own magic caster
 			auto spell = RE::TESForm::LookupByID<RE::SpellItem>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
@@ -174,6 +181,30 @@ void DebugChannel::Poll()
 		} else if (cmd == "skipdoors") {
 			Collision::DebugSkipDoors(std::stoi(arg));
 			logger::info("debug: skipdoors {}", arg);
+		} else if (cmd == "projlog") {
+			// projectiles in flight: where, which way, against the camera's forward and the player's own aim angles
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				float fwd[3] = { 0, 0, 0 };
+				if (auto camera = RE::PlayerCamera::GetSingleton(); camera && camera->cameraRoot) {
+					const auto& r = camera->cameraRoot->world.rotate;
+					fwd[0] = r.entry[0][1]; fwd[1] = r.entry[1][1]; fwd[2] = r.entry[2][1];
+				}
+				auto mgr = RE::Projectile::Manager::GetSingleton();
+				auto each = [&](const RE::BSTArray<RE::ProjectileHandle>& list) {
+					for (auto& h : list) {
+						auto sp = h.get();
+						auto proj = sp.get();
+						if (!proj) continue;
+						const auto& v = proj->GetProjectileRuntimeData().linearVelocity;
+						const auto  p = proj->GetPosition();
+						const float hh = std::hypot(v.x, v.y);
+						logger::info("PROJ at=({:.0f},{:.0f},{:.0f}) vel=({:.0f},{:.0f},{:.0f}) pitch={:.3f} | camera fwd pitch={:.3f} | player angleX={:.3f} player=({:.0f},{:.0f},{:.0f})",
+							p.x, p.y, p.z, v.x, v.y, v.z, std::atan2(v.z, hh), std::asin(fwd[2]), player->GetAngleX(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+					}
+				};
+				if (mgr) { each(mgr->unlimited); each(mgr->limited); }
+				logger::info("debug: projlog {} {}", mgr ? mgr->unlimited.size() : 0, mgr ? mgr->limited.size() : 0);
+			}
 		} else if (cmd == "soundcats") {
 			if (auto data = RE::TESDataHandler::GetSingleton())
 				for (auto cat : data->GetFormArray<RE::BGSSoundCategory>())

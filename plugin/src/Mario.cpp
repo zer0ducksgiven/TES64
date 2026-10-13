@@ -11,6 +11,7 @@
 #include "Objects.h"
 #include "Star.h"
 #include "Music.h"
+#include "Aim.h"
 #include "DebugChannel.h"
 #include "Hud.h"
 #include "Caps.h"
@@ -90,7 +91,14 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		if (Active()) Disable();
 		else Enable(a_player);
 	}
-	Hud::Tick(a_player, Active(), static_cast<int>(_state.health >> 8), a_delta);
+	// his death animation is over when it stops advancing (it holds its last frame)
+	static std::int16_t s_deathFrame = -1;
+	static float        s_deathStill = 0.0f;
+	const bool          dying = Active() && ((_state.action & 0xFFFFFFC0) == 0x00021300 || _state.action == 0x300032C7u);
+	if (dying && _state.animFrame == s_deathFrame) s_deathStill += a_delta;
+	else s_deathStill = 0.0f;
+	s_deathFrame = dying ? _state.animFrame : -1;
+	Hud::Tick(a_player, Active(), static_cast<int>(_state.health >> 8), dying && s_deathStill > 0.3f, a_delta);
 	if (Sm64::audio_volume) {
 		auto ui = RE::UI::GetSingleton();
 		const int want = Active() && !(ui && ui->GameIsPaused()) ? Config::volume : 0;
@@ -103,6 +111,7 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	if (ui && ui->GameIsPaused()) return;   // menus stop Mario with the game
 	Reactions::Tick(a_player, a_delta);
 	Music::Tick(a_player, a_delta);
+	Aim::Tick(a_player);
 
 	// Skyrim moved the player (a door, fast travel, coc, a script): Mario follows instead of dragging them back
 	// (a door can put the player down less than 300 units away, across a worldspace or cell change: that's a move too)
@@ -396,6 +405,7 @@ void Mario::Disable()
 	Star::Reset();
 	Coins::Reset();
 	Music::Reset();
+	Aim::Reset();
 	Objects::Hide();
 	Pose::Reset();
 	Render::Hide();

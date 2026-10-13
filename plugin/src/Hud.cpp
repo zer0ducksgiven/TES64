@@ -768,7 +768,7 @@ void Hud::InstallHook()
 	HudDisplayHook::original = hud.write_vfunc(0x6, HudDisplayHook::PostDisplay);
 }
 
-void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, float a_delta)
+void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, bool a_deathAnimDone, float a_delta)
 {
 	static float s_countTimer = 0.0f, s_starTimer = 0.0f, s_telTimer = 0.0f, s_vanillaTimer = 0.0f;
 	static int   s_coins = -1, s_stars = 0;
@@ -827,7 +827,11 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 
 	// Mario dies: the Bowser wipe closes over 48 SM64 frames, with his laugh, and holds
 	static float s_wipeT = -1.0f;
-	if (a_marioActive && ((Config::deathWipe && a_player->IsDead()) || s_forceWipe)) {
+	// (once his death animation has finished, as in SM64; if it never reports as finished, after five seconds)
+	static float s_deadT = 0.0f;
+	const bool   dead = a_marioActive && Config::deathWipe && a_player->IsDead();
+	s_deadT = dead ? s_deadT + a_delta : 0.0f;
+	if (a_marioActive && ((dead && (a_deathAnimDone || s_deadT > 5.0f)) || s_forceWipe)) {
 		if (s_wipeT < 0.0f) {
 			s_wipeT = 0.0f;
 			if (Config::sounds && Sm64::play_sound) Sm64::play_sound(kSoundBowserLaugh);

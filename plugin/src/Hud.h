@@ -12,5 +12,5 @@ namespace Hud
 	void RequestSnapshot();                                       // telemetry: the next frame is written to TES64_snap.bmp                                          // the swap chain's Present
 
 	// main thread, every frame
-	void Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, float a_delta);
+	void Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, bool a_deathAnimDone, float a_delta);
 }
