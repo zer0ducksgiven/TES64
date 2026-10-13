@@ -85,6 +85,8 @@ namespace
 	std::mutex              s_lock;
 	std::vector<PendingHit> s_pending;
 
+	bool Staggers(bool a_powerAttack, bool a_projectile) { return a_powerAttack && !a_projectile; }
+
 	class HitSink : public RE::BSTEventSink<RE::TESHitEvent>
 	{
 	public:
@@ -99,6 +101,12 @@ namespace
 			if (a_event->target.get() != player) return RE::BSEventNotifyControl::kContinue;
 			auto cause = a_event->cause.get();
 			if (!cause || cause == player) return RE::BSEventNotifyControl::kContinue;
+			// as in SM64, only the heavy blows stagger him: a power attack. Light swings, arrows and spells hurt (Skyrim's
+			// health) without knocking him about, so a crowd or an archer can't keep him from moving
+			if (!Staggers(a_event->flags.any(RE::TESHitEvent::Flag::kPowerAttack), a_event->projectile != 0)) {
+				if (Config::telemetry) logger::info("HIT on Mario without stagger (light blow, arrow or spell) from {:08X}", cause->GetFormID());
+				return RE::BSEventNotifyControl::kContinue;
+			}
 			std::scoped_lock l(s_lock);
 			s_pending.push_back({ cause->GetPosition(), 0.0f });
 			return RE::BSEventNotifyControl::kContinue;
@@ -218,6 +226,18 @@ void Combat::Reset()
 	s_injected = false;
 	std::scoped_lock l(s_lock);
 	s_pending.clear();
+}
+
+void Combat::DebugHit(bool a_power, bool a_projectile)
+{
+	auto player = RE::PlayerCharacter::GetSingleton();
+	if (!player) return;
+	if (!Staggers(a_power, a_projectile)) {
+		if (Config::telemetry) logger::info("HIT on Mario without stagger (debug)");
+		return;
+	}
+	std::scoped_lock l(s_lock);
+	s_pending.push_back({ player->GetPosition() + RE::NiPoint3(60.0f, 0.0f, 0.0f), 0.0f });
 }
 
 void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM64MarioState& a_state,

@@ -8,6 +8,7 @@
 // off it.
 namespace Combat
 {
+	void DebugHit(bool a_power, bool a_projectile);   // debug: a blow lands on the player as a Skyrim hit would
 	void Register();   // hit events
 	void Reset();      // Mario mode on: forget the last attack / pending knockbacks
 	void SuppressNextAttack();   // the next SM64 attack is Skyrim's swing/cast animating Mario: Skyrim deals that damage

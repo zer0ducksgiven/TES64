@@ -2,6 +2,7 @@
 #include "Collision.h"
 #include "Config.h"
 #include "Hud.h"
+#include "Combat.h"
 #include "Mario.h"
 #include "Pose.h"
 #include "Reactions.h"
@@ -33,6 +34,10 @@ void DebugChannel::Poll()
 			auto shout = RE::TESForm::LookupByID<RE::TESShout>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
 			if (shout && player) RE::ActorEquipManager::GetSingleton()->EquipShout(player, shout);
 			logger::info("debug: equipshout {} -> {}", arg, shout ? "ok" : "no such shout");
+		} else if (cmd == "hitplayer") {
+			// hitplayer light | power | arrow
+			Combat::DebugHit(arg == "power", arg == "arrow");
+			logger::info("debug: hitplayer {}", arg);
 		} else if (cmd == "equipspell") {
 			auto spell = RE::TESForm::LookupByID<RE::SpellItem>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
 			if (spell && player) {
