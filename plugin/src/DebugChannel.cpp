@@ -35,6 +35,10 @@ void DebugChannel::Poll()
 			auto shout = RE::TESForm::LookupByID<RE::TESShout>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
 			if (shout && player) RE::ActorEquipManager::GetSingleton()->EquipShout(player, shout);
 			logger::info("debug: equipshout {} -> {}", arg, shout ? "ok" : "no such shout");
+		} else if (cmd == "setsprint") {
+			// the player starts sprinting, as Skyrim would on LB: the plugin must stop it
+			if (player && player->AsActorState()) player->AsActorState()->actorState1.sprinting = 1;
+			logger::info("debug: setsprint");
 		} else if (cmd == "mcmset") {
 			std::string value;
 			in >> value;

@@ -4,6 +4,7 @@
 #include "Music.h"
 
 #include <random>
+#include <unordered_set>
 
 namespace
 {
@@ -29,7 +30,6 @@ namespace
 	float s_yaw = 0.0f, s_prevYaw = 0.0f; // radians
 	float s_scale = 1.0f;
 
-	int   s_quests = -1;     // completed quests last counted
 	float s_questTimer = 0.0f;
 	bool  s_dancing = false;
 	bool  s_pending = false;
@@ -37,14 +37,38 @@ namespace
 	std::mt19937 s_rng{ 64 };
 	float Random() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(s_rng); }
 
-	int CountCompleted()
+	// Quests that are the player's: in the journal (a type and a name) with objectives. The game also completes
+	// background quests (scenes, dialogue, radiant bookkeeping) that the player never sees.
+	bool PlayerQuest(RE::TESQuest* a_quest)
+	{
+		return a_quest->GetType() != RE::QUEST_DATA::Type::kNone && a_quest->GetName() && a_quest->GetName()[0] && !a_quest->objectives.empty();
+	}
+
+	std::unordered_set<RE::FormID> s_completed;   // the player's quests already completed
+	std::unordered_set<RE::FormID> s_others;      // completed quests that aren't the player's (logged once)
+	bool                           s_haveBaseline = false;
+
+	// the player's quests that have become completed since the last look (the first look only sets the baseline)
+	int NewlyCompleted()
 	{
 		auto data = RE::TESDataHandler::GetSingleton();
 		if (!data) return 0;
-		int n = 0;
-		for (auto quest : data->GetFormArray<RE::TESQuest>())
-			if (quest && quest->IsCompleted()) n++;
-		return n;
+		int fresh = 0, others = 0;
+		for (auto quest : data->GetFormArray<RE::TESQuest>()) {
+			if (!quest || !quest->IsCompleted()) continue;
+			if (!PlayerQuest(quest)) {
+				if (s_haveBaseline && s_others.insert(quest->GetFormID()).second && Config::telemetry) logger::info("STAR not counted: {:08X} completed but isn't a journal quest", quest->GetFormID());
+				others++;
+				continue;
+			}
+			if (s_completed.insert(quest->GetFormID()).second && s_haveBaseline) {
+				fresh++;
+				if (Config::telemetry) logger::info("STAR quest completed {:08X} '{}'", quest->GetFormID(), quest->GetName());
+			}
+		}
+		if (!s_haveBaseline && Config::telemetry) logger::info("STAR baseline: {} player quests completed, {} other quests completed (not stars)", s_completed.size(), others);
+		s_haveBaseline = true;
+		return fresh;
 	}
 
 	// a spot a few metres from Mario on open ground: a floor near his height, nothing above for a while, no wall
@@ -98,6 +122,8 @@ namespace
 	}
 }
 
+bool Star::IsPlayerQuest(RE::TESQuest* a_quest) { return a_quest && PlayerQuest(a_quest); }
+
 void Star::Init() { s_ready = Objects::Ready(); }
 
 void Star::Reset()
@@ -105,7 +131,8 @@ void Star::Reset()
 	s_phase = Phase::kNone;
 	s_dancing = false;
 	s_pending = false;
-	s_quests = -1;
+	s_completed.clear();
+	s_haveBaseline = false;
 }
 
 void Star::SpawnNow() { s_pending = true; }
@@ -120,9 +147,7 @@ void Star::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM64M
 	// a quest completed: a star (counted every couple of seconds; the first count only sets where we start from)
 	if ((s_questTimer -= 1.0f / 30.0f) <= 0.0f) {
 		s_questTimer = 2.0f;
-		const int n = CountCompleted();
-		if (s_quests >= 0 && n > s_quests) s_pending = true;
-		s_quests = n;
+		if (NewlyCompleted() > 0) s_pending = true;
 	}
 	if (s_pending && s_phase == Phase::kNone && !(a_state.action & ACT_FLAG_AIR)) Spawn(a_state.position);
 

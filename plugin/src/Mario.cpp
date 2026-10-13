@@ -112,6 +112,21 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	Reactions::Tick(a_player, a_delta);
 	Music::Tick(a_player, a_delta);
 	Aim::Tick(a_player);
+	// No sprinting as Mario, whichever way Skyrim got there (the Sprint handler's presses are held back, Input.cpp; this
+	// is the net under it): the flag is cleared and any stamina it cost is given back.
+	{
+		static float s_stamina = -1.0f;
+		auto         state = a_player->AsActorState();
+		auto         av = a_player->AsActorValueOwner();
+		const float  now = av->GetActorValue(RE::ActorValue::kStamina);
+		if (state && state->actorState1.sprinting) {
+			state->actorState1.sprinting = 0;
+			a_player->GetPlayerRuntimeData().playerFlags.isSprinting = false;
+			if (s_stamina > now) av->RestoreActorValue(RE::ActorValue::kStamina, s_stamina - now);
+			if (Config::telemetry) logger::info("SPRINT cleared (Mario is out)");
+		}
+		s_stamina = av->GetActorValue(RE::ActorValue::kStamina);
+	}
 	// Mario crouching or crawling is the player sneaking: stealth, detection and sneak attacks follow (Skyrim's own Sneak
 	// control is taken by Mario's Z). Flagged on the actor, since the hidden character never plays the sneak.
 	{

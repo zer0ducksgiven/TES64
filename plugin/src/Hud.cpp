@@ -1,6 +1,7 @@
 #include "Hud.h"
 #include "Config.h"
 #include "Sm64.h"
+#include "Star.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -530,7 +531,7 @@ namespace
 		if (!data) return 0;
 		int n = 0;
 		for (auto quest : data->GetFormArray<RE::TESQuest>())
-			if (quest && quest->IsCompleted()) n++;
+			if (quest && quest->IsCompleted() && Star::IsPlayerQuest(quest)) n++;
 		return n;
 	}
 
@@ -588,6 +589,8 @@ namespace
 	void SetVanillaVisible(bool a_meters, bool a_crosshair, bool a_compass)
 	{
 		for (const char* clip : { "Health", "Stamina", "Magica" }) SetClipVisible(clip, a_meters);
+		// the stealth meter's eye bar (it gets stuck on screen as Mario crouches); its Hidden / Detected text stays
+		SetClipVisible("StealthMeterInstance.SneakAnimInstance", a_meters);
 		static bool s_logged = false;
 		const bool  cross = SetClipVisible("CrosshairInstance", a_crosshair) | SetClipVisible("Crosshair", a_crosshair);
 		// the compass's frame goes; its strip of markers (and faint letters, under Mario's) stays, drawn over Mario's

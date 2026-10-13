@@ -7,6 +7,7 @@
 // celebration star circles him. The star is SM64's, from the player's ROM; Objects draws it.
 namespace Star
 {
+	bool IsPlayerQuest(RE::TESQuest* a_quest);   // a quest the player sees in the journal (the only kind that earns a star)
 	void Init();    // after Objects::Init
 	void Reset();   // Mario mode off / respawned: any star goes
 
