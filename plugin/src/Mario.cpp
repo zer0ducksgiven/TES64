@@ -273,7 +273,7 @@ float Mario::GroundAtFeet(RE::PlayerCharacter* a_player, bool a_heal)
 		return f;
 	};
 	float f = floorAt();
-	if ((f < -80.0f) && a_heal) {   // nothing under his feet in the stream: is something missing that Skyrim has there?
+	if (a_heal) {   // always: is something missing that Skyrim has under him (a bridge or gate sill the stream lacks, with terrain lower down still counting as a floor)?
 		std::vector<RE::NiPoint3> pts{ _origin };
 		for (float r : { 50.0f, 110.0f })
 			for (int i = 0; i < 8; i++) pts.push_back({ _origin.x + std::cos(i * 0.785398f) * r, _origin.y + std::sin(i * 0.785398f) * r, _origin.z });
@@ -283,7 +283,7 @@ float Mario::GroundAtFeet(RE::PlayerCharacter* a_player, bool a_heal)
             if (Sm64::lock) Sm64::lock();
             const float fl = Sm64::find_floor_height(sm[0], sm[1] + 60.0f, sm[2]);
             if (Sm64::unlock) Sm64::unlock();
-            return fl < -1e4f || (sm[1] - fl) * scale > 30.0f;
+            return fl < -1e4f || (sm[1] - fl) * scale > 10.0f;
 		};
 		if (Collision::Heal(a_player, pts, missing, 70.0f) > 0) {
 			StreamWorld(a_player, true);
