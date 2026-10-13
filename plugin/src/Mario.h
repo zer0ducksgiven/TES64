@@ -27,7 +27,9 @@ private:
 	void Disable();
 	void StreamWorld(RE::PlayerCharacter* a_player, bool a_force);
  public:
-	void HealCollision(RE::PlayerCharacter* a_player);   // finds ground the stream missed (bridges, animated statics) and adds it
+	void HealCollision(RE::PlayerCharacter* a_player);
+	float GroundAtFeet(RE::PlayerCharacter* a_player, bool a_heal);   // SM64 floor at the origin, at his feet (not an arch or roof over him); heals missing collision   // finds ground the stream missed (bridges, animated statics) and adds it
+	void DebugDropOut();   // debug: Mario is put far under the world, as if he had fallen out of it
 	void FloorScan(RE::PlayerCharacter* a_player, float a_radius);
 	void WaterGrid(RE::PlayerCharacter* a_player, float a_radius, float a_step);   // debug: where the cell claims water, and whether the game agrees
 	void RayGrid(RE::PlayerCharacter* a_player, float a_radius, float a_step);   // debug: Skyrim's ground vs SM64's floor   // debug: SM64's floor over each thin body vs its top
@@ -35,6 +37,9 @@ private:
 	RE::NiPoint3 _respawnLast;
 	float        _respawnStill = 0.0f;
 	float             _healTimer = 0.0f;
+	float             _safe[3] = {};           // the last solid footing (SM64 units): where he goes if he ends up over nothing
+	bool              _haveSafe = false;
+	int               _noFloorTicks = 0;
 	int               _respawnWaits = 0;   // frames waited for the spawn spot's ground to load
 	RE::BGSVoiceType* _savedVoice = nullptr;   // the player's own voice while it's silenced (-1: it had none)
 	void UpdateWater(RE::PlayerCharacter* a_player);

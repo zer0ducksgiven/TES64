@@ -219,35 +219,78 @@ bool Mario::Respawn(RE::PlayerCharacter* a_player)
 	_origin = pos;
 	_streamed = false;
 	StreamWorld(a_player, true);
-	if (!_streamed) return false;
-	// the new cell's collision can still be arriving: spawn only on ground that's there (within a few seconds, else
-	// anyway), not into the void beside it, which is where Mario fell out of the world
+	if (!_streamed) {
+		// nothing read at all (the new cell's collision hasn't arrived): Skyrim's own rays say what ground is under the
+		// player, and that is added; if there's none yet, try again next frame
+		std::vector<RE::NiPoint3> pts{ pos };
+		for (float r : { 60.0f, 140.0f, 260.0f })
+			for (int i = 0; i < 8; i++) pts.push_back({ pos.x + std::cos(i * 0.785398f) * r, pos.y + std::sin(i * 0.785398f) * r, pos.z });
+		if (Collision::Heal(a_player, pts, [](const RE::NiPoint3&) { return true; }, 70.0f) > 0) StreamWorld(a_player, true);
+		if (!_streamed) return false;
+	}
+	// the new cell's collision can still be arriving, and the spot can lie under something (a gate's arch, a bridge, a mine's
+	// roof): spawn only on ground at the player's feet, not the highest floor over them, and not into the void. Skyrim's
+	// own physics says what's missing (a drawbridge that arrives late, say) and it's added; if the ground still isn't
+	// there, wait a few seconds, then spawn anyway.
+	float spawnFloor = 0.0f;
 	if (Sm64::find_floor_height) {
-		if (Sm64::lock) Sm64::lock();
-		const float floor = Sm64::find_floor_height(0.0f, 300.0f, 0.0f);
-		if (Sm64::unlock) Sm64::unlock();
-		const bool ground = floor > -1e4f && std::abs(floor) < 200.0f;
-		if (!ground && ++_respawnWaits < 90) {
-			if (Config::telemetry) logger::info("respawn: no ground under the spawn yet (floor {:.0f}), waiting", floor);
+		spawnFloor = GroundAtFeet(a_player, true);
+		if (spawnFloor < -1e3f && ++_respawnWaits < 90) {
+			if (Config::telemetry) logger::info("respawn: no ground at the player's feet yet, waiting");
 			_streamed = false;
 			return false;
 		}
-		if (Config::telemetry) logger::info("respawn: ground {:.0f} under the spawn after {} waits", floor, _respawnWaits);
+		if (Config::telemetry) logger::info("respawn: ground {:.0f} at the player's feet after {} waits", spawnFloor, _respawnWaits);
+		if (spawnFloor < -1e3f) spawnFloor = 0.0f;
 	}
 	_respawnWaits = 0;
+	const float spawnY = spawnFloor + 20.0f / Config::scale;
 	Sm64::mario_delete(_id);
-	_id = Sm64::mario_create(0.0f, 20.0f / Config::scale, 0.0f);
+	_id = Sm64::mario_create(0.0f, spawnY, 0.0f);
 	if (_id < 0) return false;
 	Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
 	_state = {};
-	_state.position[1] = 20.0f / Config::scale;
+	_state.position[1] = spawnY;
 	ResetPrev();
 	_respawnPending = false;
 	_haveLastSet = false;
+	_haveSafe = false;
+	_noFloorTicks = 0;
 	_accum = 0.0f;
 	Combat::Reset();
 	logger::info("Mario followed the player to ({:.0f}, {:.0f}, {:.0f})", pos.x, pos.y, pos.z);
 	return true;
+}
+
+float Mario::GroundAtFeet(RE::PlayerCharacter* a_player, bool a_heal)
+{
+	auto floorAt = [&]() {
+		if (Sm64::lock) Sm64::lock();
+		// SM64 takes floors up to 78 above the probe: probing at -30 lets ground up to ~48 above his feet count (a step, a
+		// bump) and no more. The highest floor over him (an arch, a bridge, a roof) is not where he stands.
+		const float f = Sm64::find_floor_height(0.0f, -30.0f, 0.0f);
+		if (Sm64::unlock) Sm64::unlock();
+		return f;
+	};
+	float f = floorAt();
+	if ((f < -80.0f) && a_heal) {   // nothing under his feet in the stream: is something missing that Skyrim has there?
+		std::vector<RE::NiPoint3> pts{ _origin };
+		for (float r : { 50.0f, 110.0f })
+			for (int i = 0; i < 8; i++) pts.push_back({ _origin.x + std::cos(i * 0.785398f) * r, _origin.y + std::sin(i * 0.785398f) * r, _origin.z });
+		const float scale = Config::scale;
+		auto        missing = [&](const RE::NiPoint3& p) {
+            auto sm = ToSm64(p);
+            if (Sm64::lock) Sm64::lock();
+            const float fl = Sm64::find_floor_height(sm[0], sm[1] + 60.0f, sm[2]);
+            if (Sm64::unlock) Sm64::unlock();
+            return fl < -1e4f || (sm[1] - fl) * scale > 30.0f;
+		};
+		if (Collision::Heal(a_player, pts, missing, 70.0f) > 0) {
+			StreamWorld(a_player, true);
+			f = floorAt();
+		}
+	}
+	return f;
 }
 
 void Mario::Enable(RE::PlayerCharacter* a_player)
@@ -266,7 +309,11 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 		return;
 	}
 
-	_id = Sm64::mario_create(0.0f, 20.0f / Config::scale, 0.0f);
+	// on the ground at the player's feet (not the highest floor over them: an arch, a bridge, a roof)
+	float spawnFloor = Sm64::find_floor_height ? GroundAtFeet(a_player, true) : 0.0f;
+	if (spawnFloor < -1e3f) spawnFloor = 0.0f;
+	const float spawnY = spawnFloor + 20.0f / Config::scale;
+	_id = Sm64::mario_create(0.0f, spawnY, 0.0f);
 	if (_id < 0) {
 		logger::error("sm64_mario_create failed: no floor under the player");
 		Notify("TES64: Mario couldn't spawn here");
@@ -282,7 +329,7 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 	_geo = { _geoPos.data(), _geoNormal.data(), _geoColor.data(), _geoUv.data(), 0 };
 	_prevGeoPos.assign(_geoPos.size(), 0.0f);
 	_state = {};
-	_state.position[1] = 20.0f / Config::scale;
+	_state.position[1] = spawnY;
 	ResetPrev();
 	_accum = 0.0f;
 	Combat::Reset();
@@ -528,6 +575,13 @@ void Mario::HealCollision(RE::PlayerCharacter* a_player)
 	if (Collision::Heal(a_player, pts, missing) > 0) StreamWorld(a_player, true);
 }
 
+void Mario::DebugDropOut()
+{
+	if (!Active() || _id < 0) return;
+	Sm64::set_mario_position(_id, _state.position[0], _state.position[1] - 30000.0f, _state.position[2]);
+	logger::info("debug: Mario dropped out of the world");
+}
+
 void Mario::FloorScan(RE::PlayerCharacter* a_player, float a_radius)
 {
 	if (!Active() || !Sm64::find_floor_height) return;
@@ -639,6 +693,34 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 	std::copy_n(_state.position, 3, _prevSm64);
 	Sm64::mario_tick(_id, &in, &_state, &_geo);
 	if (Sm64::unlock) Sm64::unlock();
+	// the safety net: with no floor anywhere under him he is out of the world (a door or a quest moved something, a body
+	// the stream lacks): back to the last solid footing, and the world re-read
+	if (Sm64::find_floor_height && !Pose::Mirroring()) {
+		if (Sm64::lock) Sm64::lock();
+		const float under = Sm64::find_floor_height(_state.position[0], _state.position[1] + 80.0f, _state.position[2]);
+		if (Sm64::unlock) Sm64::unlock();
+		if (under > -1e4f) {
+			_noFloorTicks = 0;
+			if (!(_state.action & 0x00000800) && under > _state.position[1] - 30.0f) {   // standing on it
+				std::copy_n(_state.position, 3, _safe);
+				_haveSafe = true;
+			}
+		} else if (++_noFloorTicks == 15) {   // half a second of nothing
+			logger::info("RESCUE Mario has no floor at ({:.0f},{:.0f},{:.0f}) in SM64 units: {}", _state.position[0], _state.position[1], _state.position[2],
+				_haveSafe ? "back to his last footing" : "respawning");
+			if (_haveSafe) {
+				Sm64::set_mario_position(_id, _safe[0], _safe[1] + 20.0f, _safe[2]);
+				Sm64::set_mario_velocity(_id, 0.0f, 0.0f, 0.0f);
+				Sm64::set_mario_action(_id, 0x0C400201);   // idle
+				ResetPrev();
+			} else {
+				_respawnPending = true;
+			}
+			_streamed = false;   // read the world again
+			StreamWorld(a_player, true);
+			_noFloorTicks = 0;
+		}
+	}
 	Pose::OnTick(_state.position, Arms::PartCount());
 	Arms::ReadHands([this](const float* p) { return ToSkyrim(p); }, RE::NI_PI - _state.faceAngle);
 	Combat::Tick(a_player, _id, _state, ToSkyrim(_state.position), [this](const RE::NiPoint3& p) { return ToSm64(p); });

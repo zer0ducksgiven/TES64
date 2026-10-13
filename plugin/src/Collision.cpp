@@ -280,6 +280,7 @@ namespace
 	// bodies the game's own ground rays hit that the stream missed (they sit outside the lists it reads: animated
 	// statics, odd layers). Added on sight, and only found again through the world's islands (never trusted blind).
 	std::unordered_set<const hkpEntity*> s_forced;
+	bool s_hideStatics = false;   // debug: the stream withholds ordinary static collision (as a late-loading cell would), so the self-heal is what finds ground
 
 	bool Wanted(COL_LAYER a_layer)
 	{
@@ -385,6 +386,7 @@ namespace Collision
 			if (!entity) return;
 			auto& collidable = entity->collidable;
 			if (!Wanted(collidable.GetCollisionLayer())) return;
+			if (s_hideStatics && !s_forced.count(entity)) return;
 			auto shape = collidable.shape;
 			if (!ValidShape(shape)) return;
 
@@ -477,13 +479,20 @@ namespace Collision
 
 namespace Collision
 {
-	int Heal(RE::PlayerCharacter* a_player, const std::vector<RE::NiPoint3>& a_points, const std::function<bool(const RE::NiPoint3&)>& a_missing)
+	void DebugHideStatics(bool a_hide)
+	{
+		s_hideStatics = a_hide;
+		s_forced.clear();
+		s_cache.clear();
+	}
+
+	int Heal(RE::PlayerCharacter* a_player, const std::vector<RE::NiPoint3>& a_points, const std::function<bool(const RE::NiPoint3&)>& a_missing, float a_above)
 	{
 		auto cell = a_player->GetParentCell();
 		auto bhk = cell ? cell->GetbhkWorld() : nullptr;
 		if (!bhk) return 0;
 		const float s = RE::bhkWorld::GetWorldScale();
-		const float top = a_player->GetPosition().z + 300.0f, bottom = a_player->GetPosition().z - 700.0f;
+		const float top = a_player->GetPosition().z + a_above, bottom = a_player->GetPosition().z - 700.0f;
 		int         added = 0;
 		RE::BSReadLockGuard lock(bhk->worldLock);
 		for (auto& p : a_points) {

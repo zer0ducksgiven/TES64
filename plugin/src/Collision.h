@@ -39,7 +39,9 @@ namespace Collision
 
 	// Skyrim's ground vs the stream: casts a ray down at each point through the game's own physics; where it hits solid
 	// ground a_missing says SM64 lacks, the body is added to what the stream reads. Returns the bodies added.
-	int Heal(RE::PlayerCharacter* a_player, const std::vector<RE::NiPoint3>& a_points, const std::function<bool(const RE::NiPoint3&)>& a_missing);
+	int Heal(RE::PlayerCharacter* a_player, const std::vector<RE::NiPoint3>& a_points, const std::function<bool(const RE::NiPoint3&)>& a_missing, float a_above = 300.0f);
+
+	void DebugHideStatics(bool a_hide);   // debug: the stream withholds static collision until the self-heal asks for it
 
 	// a number that changes whenever a door near the player moves (swings, opens, closes)
 	std::uint64_t DoorSignature(RE::PlayerCharacter* a_player, float a_radius);

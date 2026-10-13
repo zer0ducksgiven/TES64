@@ -128,12 +128,50 @@ void DebugChannel::Poll()
 					out.write(reinterpret_cast<const char*>(f), sizeof(f));
 				}
 			logger::info("debug: dumptris {} triangles", tris.size());
+		} else if (cmd == "doorlinks") {
+			// every teleport door within arg units: where it sits, where it sends the player, and the door at the far end
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				tes->ForEachReferenceInRange(player, arg.empty() ? 3000.0f : std::stof(arg), [&](RE::TESObjectREFR* ref) {
+					auto base = ref->GetBaseObject();
+					if (!base || !base->Is(RE::FormType::Door)) return RE::BSContainer::ForEachResult::kContinue;
+					auto tele = ref->extraList.GetByType<RE::ExtraTeleport>();
+					auto td = tele ? tele->teleportData : nullptr;
+					if (!td) return RE::BSContainer::ForEachResult::kContinue;
+					auto  farDoor = td->linkedDoor.get();
+					auto  p = ref->GetPosition();
+					logger::info("DOORLINK {:08X} {} at=({:.0f},{:.0f},{:.0f}) sends to=({:.0f},{:.0f},{:.0f}) far={:08X} farcell={}", ref->GetFormID(), std::string(ref->GetName()), p.x, p.y, p.z,
+						td->position.x, td->position.y, td->position.z, farDoor ? farDoor->GetFormID() : 0,
+						farDoor && farDoor->GetParentCell() ? std::string(farDoor->GetParentCell()->GetName() ? farDoor->GetParentCell()->GetName() : "?") : std::string("unloaded"));
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			}
+		} else if (cmd == "usedoor") {
+			// the player activates the nearest teleport door within arg units (default 500), as pressing E on it would
+			RE::TESObjectREFR* best = nullptr;
+			float              bestD = arg.empty() ? 500.0f : std::stof(arg);
+			if (auto tes = RE::TES::GetSingleton(); tes && player) {
+				tes->ForEachReferenceInRange(player, bestD, [&](RE::TESObjectREFR* ref) {
+					auto base = ref->GetBaseObject();
+					if (base && base->Is(RE::FormType::Door) && ref->extraList.HasType(RE::ExtraDataType::kTeleport)) {
+						const float d = ref->GetPosition().GetDistance(player->GetPosition());
+						if (d < bestD) { bestD = d; best = ref; }
+					}
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			}
+			if (best) best->ActivateRef(player, 0, nullptr, 1, false);
+			logger::info("debug: usedoor -> {}", best ? fmt::format("{:08X} {} at {:.0f}", best->GetFormID(), std::string(best->GetName()), bestD) : "no teleport door in reach");
 		} else if (cmd == "watergrid") {
 			Mario::GetSingleton()->WaterGrid(player, arg.empty() ? 1500.0f : std::stof(arg), 60.0f);
 		} else if (cmd == "raygrid") {
 			std::string step;
 			in >> step;
 			Mario::GetSingleton()->RayGrid(player, arg.empty() ? 1500.0f : std::stof(arg), step.empty() ? 60.0f : std::stof(step));
+		} else if (cmd == "hidestatics") {
+			Collision::DebugHideStatics(arg == "1");
+			logger::info("debug: hidestatics {}", arg);
+		} else if (cmd == "dropout") {
+			Mario::GetSingleton()->DebugDropOut();
 		} else if (cmd == "floorscan") {
 			Mario::GetSingleton()->FloorScan(player, arg.empty() ? 1500.0f : std::stof(arg));
 		} else if (cmd == "activebodies") {
