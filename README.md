@@ -39,8 +39,8 @@ your PC, when the game starts. The installer asks for it.
 - [SKSE64](https://skse.silverlock.org): start the game with `skse64_loader.exe`
 - [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444)
 - Your own Super Mario 64 (US) ROM (`.z64`, `.v64` or `.n64`)
-- Optional, for the in-game settings page: [SkyUI](https://www.nexusmods.com/skyrimspecialedition/mods/12604) and
-  [MCM Helper](https://www.nexusmods.com/skyrimspecialedition/mods/53000). Without them, edit
+- Optional, for the in-game settings page (Mod Configuration, "TES64 - Mario"):
+  [SkyUI](https://www.nexusmods.com/skyrimspecialedition/mods/12604) and nothing else. Without it, edit
   `Data/SKSE/Plugins/TES64.ini`.
 
 ## Installing

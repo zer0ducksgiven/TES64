@@ -1,6 +1,6 @@
-"""Writes TES64.esp (ESL-flagged): one quest that MCM Helper turns into TES64's Mod Configuration Menu
-(MCM_ConfigBase on the quest, SKI_PlayerLoadGameAlias on a PlayerRef alias - MCM Helper's documented setup).
-Needs SkyUI + MCM Helper in game; without them the quest just sits there. No Nintendo content."""
+"""Writes TES64.esp (ESL-flagged): one quest running TES64_MCM (SkyUI's SKI_ConfigBase, compiled by make_pex.py) with
+SKI_PlayerLoadGameAlias on a PlayerRef alias: the quest SkyUI turns into TES64's Mod Configuration Menu page.
+Needs SkyUI in game; without it the quest just sits there. No Nintendo content."""
 import os
 import struct
 import sys
@@ -37,11 +37,11 @@ def script(name):
 
 
 def quest_vmad():
-    v = struct.pack("<hhH", 5, 2, 1) + script("MCM_ConfigBase")
+    v = struct.pack("<hhH", 5, 2, 1) + script("TES64_MCM")
     # quest fragment section: unknown (2), no fragments, empty file name; then aliases
     v += struct.pack("<bH", 2, 0) + wstr("")
     v += struct.pack("<H", 1)
-    v += struct.pack("<HhI", 0, 0, 0)                  # object: alias 0 of this quest (format 2: unused, alias, formid)
+    v += struct.pack("<HhI", 0, 0, QUEST_ID)           # object: alias 0 of this quest (format 2: unused, alias id, quest form id)
     v += struct.pack("<hhH", 5, 2, 1) + script("SKI_PlayerLoadGameAlias")
     return v
 

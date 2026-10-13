@@ -25,6 +25,7 @@ add_commonlibsse_plugin(TES64
 		src/Camera.cpp
 		src/Music.cpp
 		src/Aim.cpp
+		src/Settings.cpp
 		src/Combat.cpp
 		src/Arms.cpp
 		src/DebugChannel.cpp

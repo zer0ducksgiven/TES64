@@ -17,7 +17,9 @@ py -3 tools/make_esp.py >/dev/null
 # the helper that makes SM64's font for Skyrim's text from the player's own ROM at install (nothing of the font ships)
 cp native/sm64/dist/tes64_fontgen.exe "$P/TES64/"
 # TES64_RELEASE=1: a build for publishing, with no SKSE / Address Library bundle (neither may be redistributed)
-cp -r plugin/data/meshes plugin/data/textures plugin/data/MCM plugin/data/TES64.esp dist/TES64/Data/
+cp -r plugin/data/meshes plugin/data/textures plugin/data/TES64.esp dist/TES64/Data/
+# the Mod Configuration Menu (SkyUI) scripts, assembled without the Papyrus compiler
+py -3 tools/make_pex.py dist/TES64/Data/Scripts >/dev/null
 cp README.md LICENSE dist/TES64/ 2>/dev/null || true
 
 # Test bundle: SKSE64 and Address Library, from the copies on this PC (the SKSE .7z in the repo root, the bins in the

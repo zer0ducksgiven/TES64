@@ -53,11 +53,15 @@ Source: "{#Dist}\TES64\Data\textures\TES64\*"; DestDir: "{app}\Data\textures\TES
 ; SM64's font for Skyrim's text is made at install from the player's own ROM by this helper (nothing of the font ships)
 Source: "{#Dist}\TES64\Data\SKSE\Plugins\TES64\tes64_fontgen.exe"; DestDir: "{app}\Data\SKSE\Plugins\TES64"; Flags: ignoreversion
 Source: "{#Dist}\TES64\Data\TES64.esp"; DestDir: "{app}\Data"; Flags: ignoreversion
-Source: "{#Dist}\TES64\Data\MCM\Config\TES64\*"; DestDir: "{app}\Data\MCM\Config\TES64"; Flags: ignoreversion
+Source: "{#Dist}\TES64\Data\Scripts\*"; DestDir: "{app}\Data\Scripts"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{localappdata}\TES64"; Flags: ignoreversion
 
 [INI]
 Filename: "{app}\Data\SKSE\Plugins\TES64.ini"; Section: "General"; Key: "sRomPath"; String: "{code:GetRomDest}"
+
+[InstallDelete]
+; the old MCM Helper page (TES64 has its own SkyUI page now)
+Type: filesandordirs; Name: "{app}\Data\MCM\Config\TES64"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\Data\SKSE\Plugins\TES64"
@@ -68,7 +72,9 @@ Type: filesandordirs; Name: "{localappdata}\TES64"
 Type: files; Name: "{app}\Data\TES64.esp"
 Type: files; Name: "{app}\Data\Interface\fonts_tes64.swf"
 Type: files; Name: "{app}\Data\Interface\fontconfig.txt"
-Type: filesandordirs; Name: "{app}\Data\MCM\Config\TES64"
+Type: files; Name: "{app}\Data\Scripts\TES64_MCM.pex"
+Type: files; Name: "{app}\Data\Scripts\TES64_Native.pex"
+Type: files; Name: "{app}\Data\MCM\Settings\TES64.ini"
 
 [Code]
 const

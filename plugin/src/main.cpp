@@ -10,6 +10,7 @@
 #include "Coins.h"
 #include "Objects.h"
 #include "Star.h"
+#include "Settings.h"
 
 namespace
 {
@@ -58,7 +59,7 @@ namespace
 			RE::UI::GetSingleton()->AddEventSink<RE::MenuOpenCloseEvent>(&menuLog);
 			if (auto data = RE::TESDataHandler::GetSingleton()) {
 				const bool mcm = data->LookupForm(0x800, "TES64.esp") != nullptr;
-				logger::info("mcm: TES64.esp {}", mcm ? "loaded (its menu needs SkyUI + MCM Helper)" : "not loaded");
+				logger::info("mcm: TES64.esp {}", mcm ? "loaded (its menu needs SkyUI)" : "not loaded");
 			}
 		}
 	}
@@ -73,6 +74,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	Config::Load();
 	Fonts::Apply();   // before the UI reads fontconfig.txt
 	Mario::InstallHooks();
+	Settings::Register();
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	return true;
 }

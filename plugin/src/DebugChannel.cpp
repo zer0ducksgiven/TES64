@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "Hud.h"
 #include "Combat.h"
+#include "Settings.h"
 #include "Mario.h"
 #include "Pose.h"
 #include "Reactions.h"
@@ -34,6 +35,11 @@ void DebugChannel::Poll()
 			auto shout = RE::TESForm::LookupByID<RE::TESShout>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
 			if (shout && player) RE::ActorEquipManager::GetSingleton()->EquipShout(player, shout);
 			logger::info("debug: equipshout {} -> {}", arg, shout ? "ok" : "no such shout");
+		} else if (cmd == "mcmset") {
+			std::string value;
+			in >> value;
+			Settings::DebugSet(std::stoi(arg), std::stof(value));
+			logger::info("debug: mcmset {} {}", arg, value);
 		} else if (cmd == "hitplayer") {
 			// hitplayer light | power | arrow
 			Combat::DebugHit(arg == "power", arg == "arrow");
