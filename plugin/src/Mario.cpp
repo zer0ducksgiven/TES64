@@ -117,6 +117,10 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	}
 
 	Pose::Track(a_player, a_delta);
+	if ((_healTimer -= a_delta) <= 0.0f) {
+		_healTimer = 0.25f;
+		HealCollision(a_player);
+	}
 	_accum += a_delta;
 	if (_accum > 0.25f) _accum = kTick;   // after a hitch, don't fast-forward
 	const RE::NiPoint3 sm64Before{ _state.position[0], _state.position[1], _state.position[2] };
@@ -393,7 +397,7 @@ void Mario::StreamWorld(RE::PlayerCharacter* a_player, bool a_force)
 	static std::uint64_t s_doorSig = 0;
 	static int           s_doorTick = 0;
 	bool                 doorMoved = false;
-	if (!a_force && _streamed && (s_doorTick++ % 4) == 0) {
+	if (!a_force && _streamed && (s_doorTick++ % 9) == 0) {
 		auto sig = Collision::DoorSignature(a_player, 1500.0f);
 		doorMoved = sig != s_doorSig;
 		s_doorSig = sig;
@@ -427,8 +431,8 @@ void Mario::StreamWorld(RE::PlayerCharacter* a_player, bool a_force)
 			ny /= len;
 			(ny > 0.01 ? floors : ny < -0.01 ? ceils : walls)++;
 		}
-		logger::info("collision{}: {} bodies ({} doors, {} big hulls), {} triangles, {} surfaces ({} floors, {} walls, {} ceilings), {} unread shapes, {:.1f} ms",
-			a_force ? " (enable)" : "", stats.bodies, stats.doors, stats.bigHulls, stats.tris, surfaces.size(), floors, walls, ceils, stats.unhandled, stats.ms);
+		logger::info("collision{}: {} bodies ({} doors, {} moving, {} big hulls), {} triangles, {} surfaces ({} floors, {} walls, {} ceilings), {} unread shapes, {:.1f} ms",
+			a_force ? " (enable)" : "", stats.bodies, stats.doors, stats.moving, stats.bigHulls, stats.tris, surfaces.size(), floors, walls, ceils, stats.unhandled, stats.ms);
 	}
 }
 
@@ -468,6 +472,62 @@ void Mario::RayGrid(RE::PlayerCharacter* a_player, float a_radius, float a_step)
 	logger::info("RAYGRID {} rays hit, {} where SM64's floor is over 30 units lower", total, missing);
 }
 
+void Mario::WaterGrid(RE::PlayerCharacter* a_player, float a_radius, float a_step)
+{
+	auto cell = a_player->GetParentCell();
+	if (!cell) return;
+	const auto me = a_player->GetPosition();
+	int        claimed = 0, real = 0;
+	for (float dx = -a_radius; dx <= a_radius; dx += a_step)
+		for (float dy = -a_radius; dy <= a_radius; dy += a_step) {
+			const RE::NiPoint3 p{ me.x + dx, me.y + dy, me.z };
+			float              h;
+			if (!cell->GetWaterHeight(p, h) || h < -1e6f || h > 1e6f) continue;
+			claimed++;
+			const float sub = a_player->GetSubmergeLevel(h - 30.0f, cell);   // would the game say something 30 units under that surface is wet?
+			if (sub > 0.0f) real++;
+			if (claimed % 10 == 1) logger::info("WATERPT at=({:.0f},{:.0f}) surface={:.0f} (player z {:.0f}) submerge={:.2f}", p.x, p.y, h, me.z, sub);
+			// where the water is deep (the ground well under its surface): the ground by a ray down through the physics
+			if (sub > 0.0f)
+				if (auto bhk = cell->GetbhkWorld()) {
+					const float     s = RE::bhkWorld::GetWorldScale();
+					RE::bhkPickData pick;
+					pick.rayInput.from = RE::hkVector4(p.x * s, p.y * s, (h + 300.0f) * s, 0.0f);
+					pick.rayInput.to = RE::hkVector4(p.x * s, p.y * s, (h - 600.0f) * s, 0.0f);
+					pick.rayInput.filterInfo.SetCollisionLayer(RE::COL_LAYER::kCharController);
+					if (bhk->PickObject(pick) && pick.rayOutput.HasHit()) {
+						const float ground = (h + 300.0f) + ((h - 600.0f) - (h + 300.0f)) * pick.rayOutput.hitFraction;
+						if (ground < h - 80.0f) logger::info("WATERDEEP at=({:.0f},{:.0f}) surface={:.0f} ground={:.0f}", p.x, p.y, h, ground);
+					}
+				}
+		}
+	logger::info("WATERGRID {} points where the cell claims water, {} where the game agrees", claimed, real);
+}
+
+// Every quarter second: rays down round Mario and ahead of him against SM64's floor. Whatever solid ground the game has
+// that the stream doesn't (it can live in lists the stream doesn't read) is added, and the world reloads.
+void Mario::HealCollision(RE::PlayerCharacter* a_player)
+{
+	if (!Sm64::find_floor_height) return;
+	const auto                 me = a_player->GetPosition();
+	std::vector<RE::NiPoint3> pts{ me };
+	for (float r : { 110.0f, 260.0f })
+		for (int i = 0; i < 8; i++) pts.push_back({ me.x + std::cos(i * 0.785398f) * r, me.y + std::sin(i * 0.785398f) * r, me.z });
+	// where he's heading
+	const float sp = std::hypot(_state.velocity[0], _state.velocity[2]);
+	if (sp > 4.0f)
+		for (float r : { 400.0f, 650.0f }) pts.push_back({ me.x + _state.velocity[0] / sp * r, me.y - _state.velocity[2] / sp * r, me.z });
+	const float scale = Config::scale;
+	auto        missing = [&](const RE::NiPoint3& p) {
+        auto sm = ToSm64(p);
+        if (Sm64::lock) Sm64::lock();
+        const float floor = Sm64::find_floor_height(sm[0], sm[1] + 60.0f, sm[2]);
+        if (Sm64::unlock) Sm64::unlock();
+        return floor < -1e4f || (sm[1] - floor) * scale > 30.0f;
+	};
+	if (Collision::Heal(a_player, pts, missing) > 0) StreamWorld(a_player, true);
+}
+
 void Mario::FloorScan(RE::PlayerCharacter* a_player, float a_radius)
 {
 	if (!Active() || !Sm64::find_floor_height) return;
@@ -499,7 +559,12 @@ void Mario::UpdateWater(RE::PlayerCharacter* a_player)
 	auto  pos = a_player->GetPosition();
 	if (auto cell = a_player->GetParentCell()) {
 		float h;
-		if (cell->GetWaterHeight(pos, h) && h > -1e6f && h < 1e6f) level = h;
+		if (cell->GetWaterHeight(pos, h) && h > -1e6f && h < 1e6f) {
+			// the cell's water height can be a stray number: an area where it reports a surface hundreds of units above the
+			// ground with no water there (Whiterun's market), and Mario swims up into the air. The game's own answer to
+			// "is something just under that surface wet?" is the truth: real water says yes, a phantom says no
+			if (a_player->GetSubmergeLevel(h - 30.0f, cell) > 0.0f) level = h;
+		}
 	}
 	auto sm = ToSm64({ pos.x, pos.y, level });
 	// Mario is only in water if there's water under him: the ground he stands on (a bridge, the bank, a ledge) above
@@ -509,6 +574,17 @@ void Mario::UpdateWater(RE::PlayerCharacter* a_player)
 		if (Sm64::lock) Sm64::lock();
 		const float floor = Sm64::find_floor_height(_state.position[0], _state.position[1] + 80.0f, _state.position[2]);
 		if (Sm64::unlock) Sm64::unlock();
+		if (Config::telemetry) {
+			static int s_n = 0;
+			if (s_n++ % 15 == 0) {
+				auto  cellNow = a_player->GetParentCell();
+				float ext = cellNow ? cellNow->GetExteriorWaterHeight() : -1.0f;
+				logger::info("WATER level={:.0f} skyrimZ={:.0f} marioY={:.0f} floor={:.0f} -> {} (cellWater={:.0f} playerZ={:.0f} hasWaterFlag={} gameSwim={} gameInWater={} submerge={:.2f})", sm[1], level, _state.position[1], floor,
+					floor > -1e4f && floor > sm[1] - 10.0f ? "land" : "water", ext, a_player->GetPosition().z,
+					cellNow && cellNow->cellFlags.any(RE::TESObjectCELL::Flag::kHasWater) ? 1 : 0,
+					a_player->AsActorState()->IsSwimming() ? 1 : 0, a_player->IsInWater() ? 1 : 0, a_player->GetSubmergeLevel(a_player->GetPosition().z, cellNow));
+			}
+		}
 		if (floor > -1e4f && floor > sm[1] - 10.0f) level = -1e6f;
 	}
 	Sm64::set_mario_water_level(_id, static_cast<int>(level <= -1e6f ? -1000000 : sm[1]));

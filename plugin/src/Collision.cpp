@@ -277,6 +277,9 @@ namespace
 	};
 	std::unordered_map<const hkpEntity*, CacheEntry> s_cache;
 	const hkpWorld*                                  s_cacheWorld = nullptr;
+	// bodies the game's own ground rays hit that the stream missed (they sit outside the lists it reads: animated
+	// statics, odd layers). Added on sight, and only found again through the world's islands (never trusted blind).
+	std::unordered_set<const hkpEntity*> s_forced;
 
 	bool Wanted(COL_LAYER a_layer)
 	{
@@ -330,6 +333,26 @@ namespace
 	}
 }
 
+namespace
+{
+	// keyframed bodies on the static layers outside the fixed island: animated statics that move with the world's scripts
+	// and quests (a drawbridge that rises, gates, platforms, mills). Doors are found through their references instead.
+	void ForEachMovingStatic(RE::hkpWorld* a_world, const std::function<void(const RE::hkpEntity*)>& a_fn)
+	{
+		if (!a_world) return;
+		auto visit = [&](RE::hkpSimulationIsland* a_island) {
+			if (!a_island) return;
+			for (auto entity : a_island->entities) {
+				if (!entity || entity->motion.type.get() != RE::hkpMotion::MotionType::kKeyframed) continue;
+				if (!Wanted(entity->collidable.GetCollisionLayer()) || !ValidShape(entity->collidable.shape)) continue;
+				a_fn(entity);
+			}
+		};
+		for (auto island : a_world->activeSimulationIslands) visit(island);
+		for (auto island : a_world->inactiveSimulationIslands) visit(island);
+	}
+}
+
 namespace Collision
 {
 	Stats Gather(RE::TESObjectCELL* a_cell, const RE::NiPoint3& a_center, float a_radius, std::vector<Tri>& a_out)
@@ -354,6 +377,7 @@ namespace Collision
 
 		RE::BSReadLockGuard lock(bhk->worldLock);
 		if (s_cacheWorld != world || s_cache.size() > 4000) {
+			s_forced.clear();
 			s_cache.clear();
 			s_cacheWorld = world;
 		}
@@ -399,7 +423,9 @@ namespace Collision
 			// as a box, fattened to 60 units: SM64's walls only push Mario out of their front, so a thin slab lets him through
 			// once he is within his radius of both faces (the back face pushes him on). Half 30 > his 24-unit radius.
 			const float minHalf = 30.0f * toHavok;
+			std::unordered_set<const hkpEntity*> doorSet;
 			ForEachDoorBody(player, a_radius + 500.0f, [&](const hkpRigidBody* body) {
+				doorSet.insert(body);
 				auto shape = body->collidable.shape;
 				if (!ValidShape(shape) || !Wanted(body->collidable.GetCollisionLayer())) return;
 				hkTransform id;
@@ -425,6 +451,22 @@ namespace Collision
 				w.hi = { 1e30f, 1e30f, 1e30f };
 				if (a_out.size() > before) stats.doors++;
 			});
+			ForEachMovingStatic(world, [&](const hkpEntity* e) {
+				if (doorSet.count(e)) return;
+				const auto before = stats.bodies;
+				consider(e);
+				stats.moving += stats.bodies - before;
+			});
+			// whatever the ground rays found missing: read wherever it lives, if it's still in the world
+			if (!s_forced.empty()) {
+				auto visit = [&](RE::hkpSimulationIsland* island) {
+					if (!island) return;
+					for (auto e : island->entities)
+						if (e && s_forced.count(e) && ValidShape(e->collidable.shape) && !doorSet.count(e)) consider(e);
+				};
+				for (auto island : world->activeSimulationIslands) visit(island);
+				for (auto island : world->inactiveSimulationIslands) visit(island);
+			}
 		}
 		stats.bigHulls = s_bigHulls;
 		stats.tris = a_out.size();
@@ -435,17 +477,71 @@ namespace Collision
 
 namespace Collision
 {
+	int Heal(RE::PlayerCharacter* a_player, const std::vector<RE::NiPoint3>& a_points, const std::function<bool(const RE::NiPoint3&)>& a_missing)
+	{
+		auto cell = a_player->GetParentCell();
+		auto bhk = cell ? cell->GetbhkWorld() : nullptr;
+		if (!bhk) return 0;
+		const float s = RE::bhkWorld::GetWorldScale();
+		const float top = a_player->GetPosition().z + 300.0f, bottom = a_player->GetPosition().z - 700.0f;
+		int         added = 0;
+		RE::BSReadLockGuard lock(bhk->worldLock);
+		for (auto& p : a_points) {
+			RE::bhkPickData pick;
+			pick.rayInput.from = RE::hkVector4(p.x * s, p.y * s, top * s, 0.0f);
+			pick.rayInput.to = RE::hkVector4(p.x * s, p.y * s, bottom * s, 0.0f);
+			pick.rayInput.filterInfo.SetCollisionLayer(RE::COL_LAYER::kCharController);
+			if (!bhk->PickObject(pick) || !pick.rayOutput.HasHit() || !pick.rayOutput.rootCollidable) continue;
+			const auto layer = pick.rayOutput.rootCollidable->GetCollisionLayer();
+			switch (layer) {   // the solid ground and architecture layers; not actors, triggers, clutter, helpers
+			case COL_LAYER::kStatic: case COL_LAYER::kAnimStatic: case COL_LAYER::kTransparent: case COL_LAYER::kTrees:
+			case COL_LAYER::kProps: case COL_LAYER::kTerrain: case COL_LAYER::kGround: case COL_LAYER::kInvisibleWall:
+			case COL_LAYER::kTransparentSmall:
+				break;
+			default:
+				continue;
+			}
+			const RE::NiPoint3 hit{ p.x, p.y, top + (bottom - top) * pick.rayOutput.hitFraction };
+			if (!a_missing(hit)) continue;
+			auto entity = pick.rayOutput.rootCollidable->GetOwner<hkpEntity>();
+			if (!entity || !ValidShape(entity->collidable.shape) || s_forced.count(entity)) continue;
+			if (auto it = s_cache.find(entity); it != s_cache.end() && !it->second.tris.empty()) continue;   // already read
+			s_forced.insert(entity);
+			added++;
+			RE::hkAabb box;
+			entity->collidable.shape->GetAabbImpl(entity->motion.motionState.transform, 0.0f, box);
+			const V3 mn = Load(box.min), mx = Load(box.max);
+			const float g = 1.0f / s;
+			logger::info("HEAL body added: layer={} motion={} shape={} box=({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f})", static_cast<int>(layer),
+				static_cast<int>(entity->motion.type.get()), static_cast<int>(entity->collidable.shape->type), mn.x * g, mn.y * g, mn.z * g, mx.x * g, mx.y * g, mx.z * g);
+		}
+		return added;
+	}
+
 	std::uint64_t DoorSignature(RE::PlayerCharacter* a_player, float a_radius)
 	{
 		std::uint64_t h = 1469598103934665603ull;
-		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body) {
-			const auto& t = body->motion.motionState.transform;
+		auto mix = [&](const RE::hkTransform& t) {
 			alignas(16) float f[4];
 			_mm_store_ps(f, t.rotation.col0.quad);
 			for (int i = 0; i < 3; i++) h = (h ^ static_cast<std::uint64_t>(std::lround(f[i] * 200.0f) + 1000)) * 1099511628211ull;
 			_mm_store_ps(f, t.translation.quad);
 			for (int i = 0; i < 3; i++) h = (h ^ static_cast<std::uint64_t>(std::lround(f[i] * 200.0f) + 100000)) * 1099511628211ull;
-		});
+		};
+		ForEachDoorBody(a_player, a_radius, [&](const RE::hkpRigidBody* body) { mix(body->motion.motionState.transform); });
+		// animated statics near enough to matter (a mill far off turning must not keep re-streaming the world)
+		auto cell = a_player->GetParentCell();
+		auto bhk = cell ? cell->GetbhkWorld() : nullptr;
+		if (bhk) {
+			const float s = RE::bhkWorld::GetWorldScale();
+			const auto  me = a_player->GetPosition();
+			ForEachMovingStatic(bhk->GetWorld1(), [&](const RE::hkpEntity* e) {
+				const auto& t = e->motion.motionState.transform;
+				alignas(16) float f[4];
+				_mm_store_ps(f, t.translation.quad);
+				if (std::hypot(f[0] - me.x * s, f[1] - me.y * s) < 900.0f * s) mix(t);
+			});
+		}
 		return h;
 	}
 
@@ -495,7 +591,10 @@ namespace Collision
 		const float toGame = 1.0f / RE::bhkWorld::GetWorldScale();
 		const auto  me = a_player->GetPosition();
 		int         n = 0;
-		for (auto island : world->activeSimulationIslands) {
+		std::vector<RE::hkpSimulationIsland*> islands;
+		for (auto i : world->activeSimulationIslands) islands.push_back(i);
+		for (auto i : world->inactiveSimulationIslands) islands.push_back(i);
+		for (auto island : islands) {
 			if (!island) continue;
 			for (auto entity : island->entities) {
 				if (!entity || !ValidShape(entity->collidable.shape)) continue;

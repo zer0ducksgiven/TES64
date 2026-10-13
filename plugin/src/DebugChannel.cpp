@@ -128,8 +128,12 @@ void DebugChannel::Poll()
 					out.write(reinterpret_cast<const char*>(f), sizeof(f));
 				}
 			logger::info("debug: dumptris {} triangles", tris.size());
+		} else if (cmd == "watergrid") {
+			Mario::GetSingleton()->WaterGrid(player, arg.empty() ? 1500.0f : std::stof(arg), 60.0f);
 		} else if (cmd == "raygrid") {
-			Mario::GetSingleton()->RayGrid(player, arg.empty() ? 1500.0f : std::stof(arg), 60.0f);
+			std::string step;
+			in >> step;
+			Mario::GetSingleton()->RayGrid(player, arg.empty() ? 1500.0f : std::stof(arg), step.empty() ? 60.0f : std::stof(step));
 		} else if (cmd == "floorscan") {
 			Mario::GetSingleton()->FloorScan(player, arg.empty() ? 1500.0f : std::stof(arg));
 		} else if (cmd == "activebodies") {

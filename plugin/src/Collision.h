@@ -14,6 +14,7 @@ namespace Collision
 		std::size_t bodies = 0;
 		std::size_t tris = 0;
 		std::size_t doors = 0;
+		std::size_t moving = 0;      // animated statics read (keyframed, outside the fixed island)
 		std::size_t bigHulls = 0;    // convex shapes dropped for having too many vertices       // door bodies read
 		std::size_t unhandled = 0;   // shapes of a type this doesn't read yet (logged by type once)
 		float       ms = 0.0f;
@@ -35,6 +36,10 @@ namespace Collision
 
 	// debug: every fixed body within a_radius of the player: layer, shape type, box, triangles read from it
 	void LogBodies(RE::PlayerCharacter* a_player, float a_radius);
+
+	// Skyrim's ground vs the stream: casts a ray down at each point through the game's own physics; where it hits solid
+	// ground a_missing says SM64 lacks, the body is added to what the stream reads. Returns the bodies added.
+	int Heal(RE::PlayerCharacter* a_player, const std::vector<RE::NiPoint3>& a_points, const std::function<bool(const RE::NiPoint3&)>& a_missing);
 
 	// a number that changes whenever a door near the player moves (swings, opens, closes)
 	std::uint64_t DoorSignature(RE::PlayerCharacter* a_player, float a_radius);
