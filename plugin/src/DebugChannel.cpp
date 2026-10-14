@@ -35,6 +35,30 @@ void DebugChannel::Poll()
 			auto shout = RE::TESForm::LookupByID<RE::TESShout>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
 			if (shout && player) RE::ActorEquipManager::GetSingleton()->EquipShout(player, shout);
 			logger::info("debug: equipshout {} -> {}", arg, shout ? "ok" : "no such shout");
+		} else if (cmd == "settings") {
+			// every ini / game setting whose name contains arg (case-insensitive): name = value
+			std::string want = arg;
+			for (auto& c : want) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			auto show = [&](RE::Setting* s) {
+				if (!s || !s->GetName()) return;
+				std::string n = s->GetName(), l = n;
+				for (auto& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				if (l.find(want) == std::string::npos) return;
+				switch (s->GetType()) {
+				case RE::Setting::Type::kFloat: logger::info("SETTING {} = {}", n, s->GetFloat()); break;
+				case RE::Setting::Type::kInteger: logger::info("SETTING {} = {}", n, s->GetInteger()); break;
+				case RE::Setting::Type::kBool: logger::info("SETTING {} = {}", n, s->GetBool()); break;
+				default: logger::info("SETTING {} (other)", n);
+				}
+			};
+			if (auto ini = RE::INISettingCollection::GetSingleton())
+				for (auto s : ini->settings) show(s);
+		} else if (cmd == "mappedkey") {
+			if (auto map = RE::ControlMap::GetSingleton()) {
+				const auto key = map->GetMappedKey(arg, RE::INPUT_DEVICE::kKeyboard);
+				const auto pad = map->GetMappedKey(arg, RE::INPUT_DEVICE::kGamepad);
+				logger::info("debug: mappedkey {} keyboard={:#x} gamepad={:#x}", arg, key, pad);
+			}
 		} else if (cmd == "setsprint") {
 			// the player starts sprinting, as Skyrim would on LB: the plugin must stop it
 			if (player && player->AsActorState()) player->AsActorState()->actorState1.sprinting = 1;

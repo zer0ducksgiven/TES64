@@ -30,6 +30,7 @@ private:
 	void HealCollision(RE::PlayerCharacter* a_player);
 	float GroundAtFeet(RE::PlayerCharacter* a_player, bool a_heal);   // SM64 floor at the origin, at his feet (not an arch or roof over him); heals missing collision   // finds ground the stream missed (bridges, animated statics) and adds it
 	void DebugDropOut();   // debug: Mario is put far under the world, as if he had fallen out of it
+	void SuppressSprint(RE::PlayerCharacter* a_player);   // clears Skyrim's sprint (before and after the player updates)
 	void FloorScan(RE::PlayerCharacter* a_player, float a_radius);
 	void WallScan(RE::PlayerCharacter* a_player, float a_radius);
 	void RayWalls(RE::PlayerCharacter* a_player, float a_range);   // Skyrim's own horizontal rays against SM64's walls, all round the player   // a map of where SM64 walls stand round the player

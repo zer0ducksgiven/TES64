@@ -1,4 +1,5 @@
 ﻿#include "Mario.h"
+#include <unordered_set>
 #include "Config.h"
 #include "Input.h"
 #include "Collision.h"
@@ -30,21 +31,80 @@ namespace
 		func(a_text, nullptr, true);
 	}
 
+	// The player's animation graph events: while Mario is out the hidden character never starts a sprint, so its camera
+	// shake and FOV widening (they come with the sprint animation) never happen.
+	struct GraphNotifyHook
+	{
+		static bool thunk(RE::IAnimationGraphManagerHolder* a_this, const RE::BSFixedString& a_event)
+		{
+			if (Mario::GetSingleton()->Active() && a_event.c_str()) {
+				std::string name = a_event.c_str();
+				for (auto& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				if (Config::telemetry) {
+					static std::unordered_set<std::string> s_seen;
+					if (s_seen.insert(name).second) logger::info("GRAPH event {}", a_event.c_str());
+				}
+				if (name.find("sprint") != std::string::npos) {
+					if (Config::telemetry) logger::info("GRAPH event {} held back", a_event.c_str());
+					return false;
+				}
+			}
+			return func(a_this, a_event);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
 	struct PlayerUpdateHook
 	{
 		static void thunk(RE::PlayerCharacter* a_player, float a_delta)
 		{
+			Mario::GetSingleton()->SuppressSprint(a_player);
 			func(a_player, a_delta);
+			Mario::GetSingleton()->SuppressSprint(a_player);
 			Mario::GetSingleton()->Update(a_player, a_delta);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
 }
 
+// No sprinting as Mario, whichever way Skyrim got there (the Sprint handler's presses are held back, Input.cpp; this is
+// the net under it). Run before the player updates, so the animation graph and the camera never see a sprint (its
+// camera shake and FOV widening come with the sprint animation), and after, to give back any stamina it cost.
+void Mario::SuppressSprint(RE::PlayerCharacter* a_player)
+{
+	if (!Active()) return;
+	static float s_stamina = -1.0f;
+	auto         state = a_player->AsActorState();
+	auto         av = a_player->AsActorValueOwner();
+	const float  now = av->GetActorValue(RE::ActorValue::kStamina);
+	if (state && state->actorState1.sprinting) {
+		state->actorState1.sprinting = 0;
+		a_player->GetPlayerRuntimeData().playerFlags.isSprinting = false;
+		if (s_stamina > now) av->RestoreActorValue(RE::ActorValue::kStamina, s_stamina - now);
+		if (Config::telemetry) logger::info("SPRINT cleared (Mario is out)");
+	}
+	s_stamina = av->GetActorValue(RE::ActorValue::kStamina);
+
+	// the sprint's FOV widening, should one get through anyway: the camera's field of view stays at the game's setting
+	static RE::Setting* s_fov = [] {
+		auto ini = RE::INISettingCollection::GetSingleton();
+		return ini ? ini->GetSetting("fDefaultWorldFOV:Display") : nullptr;
+	}();
+	if (auto camera = RE::PlayerCamera::GetSingleton(); camera && s_fov && camera->currentState && camera->currentState->id == RE::CameraState::kThirdPerson) {
+		auto& fov = camera->GetRuntimeData2().worldFOV;
+		if (fov > s_fov->GetFloat() + 0.25f) {
+			if (Config::telemetry) logger::info("CAMERA fov {:.1f} held at {:.1f}", fov, s_fov->GetFloat());
+			fov = s_fov->GetFloat();
+		}
+	}
+}
+
 void Mario::InstallHooks()
 {
 	REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_PlayerCharacter[0] };
 	PlayerUpdateHook::func = vtbl.write_vfunc(0xAD, PlayerUpdateHook::thunk);
+	REL::Relocation<std::uintptr_t> graph{ RE::VTABLE_PlayerCharacter[2] };
+	GraphNotifyHook::func = graph.write_vfunc(0x1, GraphNotifyHook::thunk);
 }
 
 std::array<float, 3> Mario::ToSm64(const RE::NiPoint3& a_pos) const
@@ -112,21 +172,6 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	Reactions::Tick(a_player, a_delta);
 	Music::Tick(a_player, a_delta);
 	Aim::Tick(a_player);
-	// No sprinting as Mario, whichever way Skyrim got there (the Sprint handler's presses are held back, Input.cpp; this
-	// is the net under it): the flag is cleared and any stamina it cost is given back.
-	{
-		static float s_stamina = -1.0f;
-		auto         state = a_player->AsActorState();
-		auto         av = a_player->AsActorValueOwner();
-		const float  now = av->GetActorValue(RE::ActorValue::kStamina);
-		if (state && state->actorState1.sprinting) {
-			state->actorState1.sprinting = 0;
-			a_player->GetPlayerRuntimeData().playerFlags.isSprinting = false;
-			if (s_stamina > now) av->RestoreActorValue(RE::ActorValue::kStamina, s_stamina - now);
-			if (Config::telemetry) logger::info("SPRINT cleared (Mario is out)");
-		}
-		s_stamina = av->GetActorValue(RE::ActorValue::kStamina);
-	}
 	// Mario crouching or crawling is the player sneaking: stealth, detection and sneak attacks follow (Skyrim's own Sneak
 	// control is taken by Mario's Z). Flagged on the actor, since the hidden character never plays the sneak.
 	{

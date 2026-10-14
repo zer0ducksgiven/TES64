@@ -33,6 +33,7 @@ namespace
 	{
 		static void ProcessButton(RE::SprintHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
 		{
+			if (Config::telemetry && a_event && (a_event->IsDown() || a_event->IsUp())) logger::info("SPRINTHOOK {} device={} mario={}", a_event->IsDown() ? "down" : "up", static_cast<int>(a_event->GetDevice()), Mario::GetSingleton()->Active());
 			if (Mario::GetSingleton()->Active()) {
 				if (Config::telemetry && a_event && a_event->IsDown()) logger::info("SPRINT press held back (Mario is out)");
 				return;
