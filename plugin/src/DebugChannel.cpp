@@ -59,6 +59,11 @@ void DebugChannel::Poll()
 				const auto pad = map->GetMappedKey(arg, RE::INPUT_DEVICE::kGamepad);
 				logger::info("debug: mappedkey {} keyboard={:#x} gamepad={:#x}", arg, key, pad);
 			}
+		} else if (cmd == "hideclip") {
+			// hideclip <dotted path under the HUD> <0|1>: show or hide one clip, to find what is what
+			std::string vis;
+			in >> vis;
+			logger::info("debug: hideclip {} {} -> {}", arg, vis, Hud::DebugSetClip(arg.c_str(), vis == "1"));
 		} else if (cmd == "setsprint") {
 			// the player starts sprinting, as Skyrim would on LB: the plugin must stop it
 			if (player && player->AsActorState()) player->AsActorState()->actorState1.sprinting = 1;

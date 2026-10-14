@@ -8,6 +8,7 @@ namespace Hud
 	bool Init(const std::uint8_t* a_rom, std::size_t a_len);   // pull the graphics from the ROM
 	void InstallHook();
 	void DumpFlash();   // debug: the HUD movie's clips in the log
+	bool DebugSetClip(const char* a_path, bool a_visible);   // debug: show / hide a clip of the HUD by path
 	void DebugWipe(bool a_on);   // debug: the Bowser wipe without dying
 	void RequestSnapshot();                                       // telemetry: the next frame is written to TES64_snap.bmp                                          // the swap chain's Present
 

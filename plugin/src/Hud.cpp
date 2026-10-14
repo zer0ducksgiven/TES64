@@ -342,7 +342,10 @@ namespace
 	// the compass, where Skyrim's was (its frame and letters hidden, its markers kept and drawn over this): a thin wooden
 	// bar in the POWER frame's wood, SM64's letters for the four points sliding past as the camera turns, coins for the
 	// in-between points. Spaced as Skyrim's compass is, so its markers line up.
-	std::vector<Quad> CompassLayout(const State& a_s, float a_width, float a_height)
+	// a_letters false: the bar, coins and pointer (drawn before Skyrim's markers, which go over them). True: the four
+	// letters, drawn after the whole HUD, each on a patch of the bar's wood: Skyrim's own N E S W are part of its compass
+	// strip's art (they can't be hidden without hiding its markers), so they're covered rather than hidden.
+	std::vector<Quad> CompassLayout(const State& a_s, float a_width, float a_height, bool a_letters)
 	{
 		std::vector<Quad> q;
 		if (!a_s.compass) return q;
@@ -360,7 +363,7 @@ namespace
 		auto put = [&](const char* a_name, float x, float y, float w, float h) {
 			if (auto im = Img(a_name)) q.push_back({ im, x, y, w, h });
 		};
-		put("compass_bar", x0, top, barW, barH);
+		if (!a_letters) put("compass_bar", x0, top, barW, barH);
 		static const struct { const char* name; float angle; float size; } points[] = {
 			{ "letter_N", 0.0f, 11 }, { "letter_E", RE::NI_HALF_PI, 11 }, { "letter_S", RE::NI_PI, 11 }, { "letter_W", -RE::NI_HALF_PI, 11 },
 			{ "coin", RE::NI_PI / 4, 6 }, { "coin", 3 * RE::NI_PI / 4, 6 }, { "coin", -RE::NI_PI / 4, 6 }, { "coin", -3 * RE::NI_PI / 4, 6 },
@@ -371,9 +374,15 @@ namespace
 			while (rel < -RE::NI_PI) rel += RE::NI_TWO_PI;
 			const float cx = x0 + barW / 2 + rel * perRadian, sz = p.size * s;
 			if (cx - sz / 2 < x0 + 4 * s || cx + sz / 2 > x1 - 4 * s) continue;
+			const bool letter = p.name[0] == 'l';
+			if (letter != a_letters) continue;
+			if (letter) {
+				// wood over Skyrim's thin letter (a slice from the bar's middle, inside its border), then ours
+				if (auto bar = Img("compass_bar")) q.push_back({ bar, cx - sz * 0.46f, top + barH * 0.12f, sz * 0.92f, barH * 0.76f, 0.45f, 0.12f, 0.46f, 0.88f });
+			}
 			put(p.name, cx - sz / 2, yc - sz / 2, sz, sz);
 		}
-		put("compass_pointer", x0 + barW / 2 - 4 * s, top + barH - 2 * s, 8 * s, 6 * s);
+		if (!a_letters) put("compass_pointer", x0 + barW / 2 - 4 * s, top + barH - 2 * s, 8 * s, 6 * s);
 		return q;
 	}
 
@@ -479,7 +488,7 @@ namespace
 				st = s_state;
 			}
 			if (st.show && st.compass && s_gpuReady && s_swap && s_backWidth)
-				Draw(s_swap, CompassLayout(st, static_cast<float>(s_backWidth), static_cast<float>(s_backHeight)));
+				Draw(s_swap, CompassLayout(st, static_cast<float>(s_backWidth), static_cast<float>(s_backHeight), false));
 			original(a_this);
 		}
 		static inline REL::Relocation<decltype(PostDisplay)> original;
@@ -506,6 +515,7 @@ namespace
 				s_backWidth = d.BufferDesc.Width;
 				s_backHeight = d.BufferDesc.Height;
 				if (st.show) Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
+				if (st.show && st.compass) Draw(a_swap, CompassLayout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height), true));
 				if (st.wipe >= 0.0f) Draw(a_swap, WipeLayout(st.wipe, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
 				if (s_snapRequested.exchange(false)) Snapshot(a_swap);
 				s_drawMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -578,7 +588,12 @@ namespace
 			RE::GFxValue::DisplayInfo info;
 			RE::GFxValue              v = a_val;
 			v.GetDisplayInfo(&info);
-			logger::info("FLASH {}.{} x={:.0f} y={:.0f} w? vis={}", a_path, a_name, info.GetX(), info.GetY(), info.GetVisible() ? 1 : 0);
+			RE::GFxValue frame, total, name, text;
+			v.GetMember("_currentframe", &frame);
+			v.GetMember("_totalframes", &total);
+			v.GetMember("text", &text);
+			logger::info("FLASH {}.{} x={:.0f} y={:.0f} w? vis={} frame={}/{} text='{}'", a_path, a_name, info.GetX(), info.GetY(), info.GetVisible() ? 1 : 0,
+				frame.IsNumber() ? frame.GetNumber() : -1.0, total.IsNumber() ? total.GetNumber() : -1.0, text.IsString() ? text.GetString() : "");
 			if (a_depth > 0) Dump(a_val, a_path + "." + a_name, a_depth - 1);
 		});
 	}
@@ -740,6 +755,8 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 	return !s_images.empty();
 }
 
+bool Hud::DebugSetClip(const char* a_path, bool a_visible) { return SetClipVisible(a_path, a_visible); }
+
 void Hud::DebugWipe(bool a_on) { s_forceWipe = a_on; }
 
 void Hud::RequestSnapshot() { s_snapRequested = true; }
@@ -749,7 +766,7 @@ void Hud::DumpFlash()
 	auto ui = RE::UI::GetSingleton();
 	auto menu = ui ? ui->GetMenu<RE::HUDMenu>() : nullptr;
 	if (!menu || !menu->GetRuntimeData().health) return;
-	Dump(menu->GetRuntimeData().health->root, "HUD", 3);
+	Dump(menu->GetRuntimeData().health->root, "HUD", 6);
 }
 
 void Hud::InstallHook()
