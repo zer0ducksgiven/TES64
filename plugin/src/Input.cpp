@@ -25,6 +25,23 @@ namespace
 		return true;
 	}
 
+	// Skyrim's Activate handler, for the pad's A while Mario is out: A is his jump unless it's activating something within
+	// reach (OffersInteraction). A jump press would otherwise still make Skyrim try the crosshair's far target and play its
+	// "can't do that" sound, so those presses are held back.
+	struct ActivateHook
+	{
+		static void ProcessButton(RE::ActivateHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
+		{
+			static bool s_passed = true;   // this press of A went to Skyrim (so does its release)
+			if (a_event && Mario::GetSingleton()->Active() && a_event->GetDevice() == RE::INPUT_DEVICE::kGamepad && a_event->GetIDCode() == kPadA) {
+				if (a_event->IsDown()) s_passed = OffersInteraction();
+				if (!s_passed) return;
+			}
+			original(a_this, a_event, a_data);
+		}
+		static inline REL::Relocation<decltype(ProcessButton)> original;
+	};
+
 	// Skyrim's Ready Weapon handler, for the pad's X while Mario is out: Skyrim would draw on the press, so the press is
 	// held back. Let go quickly: Mario dives. Held: the weapons are drawn or put away, once.
 	// Skyrim's Sprint handler: the left bumper (and the keyboard's sprint key) would make the hidden character sprint in the
@@ -97,6 +114,8 @@ void Input::Register()
 	ReadyWeaponHook::original = vtbl.write_vfunc(0x4, ReadyWeaponHook::ProcessButton);
 	REL::Relocation<std::uintptr_t> sprint{ RE::VTABLE_SprintHandler[0] };
 	SprintHook::original = sprint.write_vfunc(0x4, SprintHook::ProcessButton);
+	REL::Relocation<std::uintptr_t> activate{ RE::VTABLE_ActivateHandler[0] };
+	ActivateHook::original = activate.write_vfunc(0x4, ActivateHook::ProcessButton);
 }
 
 RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*)
