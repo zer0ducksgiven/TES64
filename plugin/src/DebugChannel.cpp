@@ -315,6 +315,30 @@ void DebugChannel::Poll()
 		} else if (cmd == "react") {
 			Reactions::ForceNext();
 			logger::info("debug: react -> next tick");
+		} else if (cmd == "mario") {
+			// mario on | off: Mario mode, as F10 does (the UAT harness)
+			const bool want = arg == "on";
+			if (want != Mario::GetSingleton()->Active()) Mario::GetSingleton()->RequestToggle();
+			logger::info("debug: mario {}", arg);
+		} else if (cmd == "console") {
+			// console <command>: one console command, as typed into the game's console (the UAT harness)
+			std::string rest;
+			std::getline(in, rest);
+			const std::string command = arg + rest;
+			const auto        factory = RE::IFormFactory::GetConcreteFormFactoryByType<RE::Script>();
+			if (auto script = factory ? factory->Create() : nullptr) {
+				script->SetCommand(command);
+				script->CompileAndRun(RE::Console::GetSelectedRef().get());
+				delete script;
+				logger::info("debug: console '{}'", command);
+			} else {
+				logger::info("debug: console: no script factory");
+			}
+		} else if (cmd == "activate") {
+			// activate <form id>: the player activates that reference (a chair, a door), as pressing the activate key would
+			auto ref = RE::TESForm::LookupByID<RE::TESObjectREFR>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
+			const bool ok = ref && player && ref->ActivateRef(player, 0, nullptr, 1, false);
+			logger::info("debug: activate {} -> {}", arg, ref ? (ok ? "ok" : "refused") : "no such reference");
 		} else if (!cmd.empty()) {
 			logger::info("debug: unknown command '{}'", cmd);
 		}

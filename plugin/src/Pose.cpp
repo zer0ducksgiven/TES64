@@ -319,8 +319,9 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	const RE::NiMatrix3 actorT = root->world.rotate.Transpose();
 	const RE::NiPoint3  rootAt = root->world.translate;
 
-	// idle: learn how Skyrim's pelvis, spine and head sit in the actor's frame
-	if (s_weight <= 0.0f && spine && head && pelvis) {
+	// idle: learn how Skyrim's pelvis, spine and head sit in the actor's frame. Not in furniture or a killmove: there the
+	// pelvis is the seat's, and learning it would make the seat's drop read as zero
+	if (s_weight <= 0.0f && s_mirrorW <= 0.0f && spine && head && pelvis) {
 		const auto         pv = actorT * pelvis->world.rotate, sp = actorT * spine->world.rotate, hd = actorT * head->world.rotate;
 		const RE::NiPoint3 off = actorT * (pelvis->world.translate - rootAt);
 		s_restPelvis = s_haveRest ? Blend(s_restPelvis, pv, 0.1f) : pv;
@@ -367,19 +368,31 @@ void Pose::Compute(RE::PlayerCharacter* a_player, float a_alpha, float a_face)
 	if (mirror && s_haveRest && pelvis) {
 		const auto         pd = (actorT * pelvis->world.rotate) * s_restPelvis.Transpose();
 		const M3           dPel = Partial(ActorToMario(pd, a_face), s_mirrorW);
-		const RE::NiPoint3 dOff = actorT * (pelvis->world.translate - rootAt) - s_restPelvisOff;   // Skyrim units, actor's frame
+		const RE::NiPoint3 offFull = actorT * (pelvis->world.translate - rootAt);   // Skyrim units, actor's frame: where the player's pelvis is
 		const float        cy = std::cos(a_face), sy = std::sin(a_face);
 		const V3           ax[3] = { { -cy, 0, sy }, { sy, 0, cy }, { 0, 1, 0 } };   // the actor's axes in SM64
-		// Skyrim's body drop, scaled to Mario's proportions: the player's own height is about 128 units, Mario's 160 SM64
-		const float        playerH = a_player->GetHeight() > 30.0f ? a_player->GetHeight() : 128.0f;
-		const V3           dT = (ax[0] * dOff.x + ax[1] * dOff.y + ax[2] * dOff.z) * (s_mirrorW * kMarioHeight / playerH);
+		// the seat is the world's, at its own size: Mario's pelvis goes where the player's is (Skyrim units, so 1 / scale in
+		// SM64's), not a drop scaled to his proportions, which leaves a short Mario below the bench
 		const V3           pv = s_parts[kPelvis].t;
+		const V3           target = (ax[0] * offFull.x + ax[1] * offFull.y + ax[2] * offFull.z) * (1.0f / Config::scale);
+		const V3           dT = (target - pv) * s_mirrorW;
 		for (int i = kPelvis; i < kParts; i++) {
 			auto& p = s_parts[i];
 			p.t = pv + Apply(p.t - pv, dPel) + dT;
 			if (i == kPelvis || i >= kLeftLeg) {
 				p.rot = Mul(p.rot, dPel);
 				p.posed = true;
+			}
+		}
+		if (Config::telemetry && s_mirrorW > 0.99f) {
+			// Mario's pelvis against the player's, in the actor's frame and Skyrim units (the UAT harness asserts this is near 0)
+			static int s_seat = 0;
+			if (s_seat++ % 20 == 0) {
+				const V3 t = s_parts[kPelvis].t;
+				const float k = Config::scale;
+				const float mx = Dot(t, ax[0]) * k, my = Dot(t, ax[1]) * k, mz = Dot(t, ax[2]) * k;
+				logger::info("SEATERR player=({:.1f},{:.1f},{:.1f}) mario=({:.1f},{:.1f},{:.1f}) err={:.1f}", offFull.x, offFull.y, offFull.z, mx, my, mz,
+					std::sqrt((mx - offFull.x) * (mx - offFull.x) + (my - offFull.y) * (my - offFull.y) + (mz - offFull.z) * (mz - offFull.z)));
 			}
 		}
 	}
