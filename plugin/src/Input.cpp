@@ -35,8 +35,22 @@ namespace
 			static bool s_passed = true;   // this press of A went to Skyrim (so does its release)
 			if (a_event && Mario::GetSingleton()->Active() && a_event->GetDevice() == RE::INPUT_DEVICE::kGamepad && a_event->GetIDCode() == kPadA) {
 				if (a_event->IsDown()) s_passed = OffersInteraction();
+				if (Config::telemetry && (a_event->IsDown() || a_event->IsUp())) logger::info("ACTIVATE pad A {} -> {}", a_event->IsDown() ? "down" : "up", s_passed ? "to Skyrim" : "held back");
 				if (!s_passed) return;
 			}
+			original(a_this, a_event, a_data);
+		}
+		static inline REL::Relocation<decltype(ProcessButton)> original;
+	};
+
+	// Skyrim's Jump handler: Mario's own jump is SM64's, and Skyrim's Jump control is switched off while he is out, but its
+	// handler still hears the key (Space, the pad's Y) and answers with its "can't do that" sound. Every press is held back.
+	struct JumpHook
+	{
+		static void ProcessButton(RE::JumpHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
+		{
+			if (Config::telemetry && a_event && a_event->IsDown()) logger::info("JUMPHOOK down device={} mario={}", static_cast<int>(a_event->GetDevice()), Mario::GetSingleton()->Active());
+			if (Mario::GetSingleton()->Active()) return;
 			original(a_this, a_event, a_data);
 		}
 		static inline REL::Relocation<decltype(ProcessButton)> original;
@@ -116,6 +130,8 @@ void Input::Register()
 	SprintHook::original = sprint.write_vfunc(0x4, SprintHook::ProcessButton);
 	REL::Relocation<std::uintptr_t> activate{ RE::VTABLE_ActivateHandler[0] };
 	ActivateHook::original = activate.write_vfunc(0x4, ActivateHook::ProcessButton);
+	REL::Relocation<std::uintptr_t> jump{ RE::VTABLE_JumpHandler[0] };
+	JumpHook::original = jump.write_vfunc(0x4, JumpHook::ProcessButton);
 }
 
 RE::BSEventNotifyControl Input::ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*)
