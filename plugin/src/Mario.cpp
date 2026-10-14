@@ -818,6 +818,16 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 	in.buttonA = input->a;
 	in.buttonB = input->b;
 	in.buttonZ = input->z;
+	// someone talking to Mario: the dialogue menu stays open with the world running behind it, and A (picking an answer)
+	// and the keys are read raw. No running, jumping or punching in the conversation.
+	const bool talking = [] {
+		auto ui = RE::UI::GetSingleton();
+		return ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME);
+	}();
+	if (talking) {
+		in.stickX = in.stickY = 0.0f;
+		in.buttonA = in.buttonB = in.buttonZ = false;
+	}
 
 	// SM64 steers relative to the camera: give it the camera-to-Mario direction
 	in.camLookX = 0.0f;
@@ -840,7 +850,7 @@ void Mario::Tick(RE::PlayerCharacter* a_player)
 		Sm64::set_mario_faceangle(_id, RE::NI_PI - a_player->GetAngleZ());
 	}
 	// the hidden player's own attacks still go to the crosshair, which is SM64's dive input's business too
-	if (input->dive.exchange(false)) Sm64::set_mario_action(_id, 0x0188088A);   // ACT_DIVE (the pad's X tap)
+	if (input->dive.exchange(false) && !talking) Sm64::set_mario_action(_id, 0x0188088A);   // ACT_DIVE (the pad's X tap)
 	Caps::Tick(a_player, _id);
 	if (Sm64::lock) Sm64::lock();
 	// keep this tick's output as the one to blend from, before SM64 overwrites it
