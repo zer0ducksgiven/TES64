@@ -334,6 +334,31 @@ void DebugChannel::Poll()
 			} else {
 				logger::info("debug: console: no script factory");
 			}
+		} else if (cmd == "draw") {
+			// draw 1 | 0: weapons and hands out or away (the UAT harness)
+			if (player) player->DrawWeaponMagicHands(arg == "1");
+			logger::info("debug: draw {}", arg);
+		} else if (cmd == "pitch") {
+			// pitch <radians>: where the player looks, up or down (positive is down), as the mouse would (the UAT harness)
+			if (player) player->SetAngle({ std::stof(arg), player->GetAngleY(), player->GetAngleZ() });
+			logger::info("debug: pitch {}", arg);
+		} else if (cmd == "rightattack") {
+			// rightattack 1 | 0: the right hand's attack / cast button down or up, queued as the game's own input (the UAT harness)
+			const bool down = arg == "1";
+			if (auto queue = RE::BSInputEventQueue::GetSingleton()) {
+				auto event = RE::ButtonEvent::Create(RE::INPUT_DEVICE::kMouse, RE::UserEvents::GetSingleton()->rightAttack, 1, down ? 1.0f : 0.0f, down ? 0.0f : 1.0f);
+				queue->PushOntoInputQueue(event);
+			}
+			logger::info("debug: rightattack {}", arg);
+		} else if (cmd == "magicstate") {
+			// what the hands are doing: drawn, the right hand's spell, the casters' states
+			if (player) {
+				auto  right = player->GetMagicCaster(RE::MagicSystem::CastingSource::kRightHand);
+				auto  left = player->GetMagicCaster(RE::MagicSystem::CastingSource::kLeftHand);
+				auto* spell = player->GetActorRuntimeData().selectedSpells[RE::Actor::SlotTypes::kRightHand];
+				logger::info("debug: magicstate drawn={} rightSpell={:08X} rightState={} leftState={}", player->AsActorState()->IsWeaponDrawn() ? 1 : 0,
+					spell ? spell->GetFormID() : 0u, right ? static_cast<int>(right->state.get()) : -1, left ? static_cast<int>(left->state.get()) : -1);
+			}
 		} else if (cmd == "activate") {
 			// activate <form id>: the player activates that reference (a chair, a door), as pressing the activate key would
 			auto ref = RE::TESForm::LookupByID<RE::TESObjectREFR>(static_cast<RE::FormID>(std::stoul(arg, nullptr, 16)));
