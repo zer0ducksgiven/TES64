@@ -5,6 +5,7 @@
 
 namespace
 {
+	bool                              s_hit = false;    // the last crosshair ray met something (telemetry)
 	std::unordered_set<std::uint32_t> s_done;   // projectile handles already turned
 	float                             s_prune = 0.0f;
 
@@ -23,6 +24,7 @@ namespace
 		const RE::NiPoint3 from = origin + fwd * past;
 		const float kRange = 6000.0f;
 		a_target = origin + fwd * kRange;
+		s_hit = false;
 		auto cell = a_player->GetParentCell();
 		auto bhk = cell ? cell->GetbhkWorld() : nullptr;
 		if (!bhk) return true;
@@ -32,7 +34,10 @@ namespace
 		pick.rayInput.from = RE::hkVector4(from.x * s, from.y * s, from.z * s, 0.0f);
 		pick.rayInput.to = RE::hkVector4(a_target.x * s, a_target.y * s, a_target.z * s, 0.0f);
 		pick.rayInput.filterInfo.SetCollisionLayer(RE::COL_LAYER::kProjectile);
-		if (bhk->PickObject(pick) && pick.rayOutput.HasHit()) a_target = from + (a_target - from) * pick.rayOutput.hitFraction;
+		if (bhk->PickObject(pick) && pick.rayOutput.HasHit()) {
+			a_target = from + (a_target - from) * pick.rayOutput.hitFraction;
+			s_hit = true;
+		}
 		return true;
 	}
 }
@@ -75,6 +80,21 @@ void Aim::Tick(RE::PlayerCharacter* a_player)
 			rd.linearVelocity = dir * speed;
 			rd.velocity = dir * (std::sqrt(rd.velocity.x * rd.velocity.x + rd.velocity.y * rd.velocity.y + rd.velocity.z * rd.velocity.z));
 			proj->SetAngle({ -std::asin(dir.z), 0.0f, std::atan2(dir.x, dir.y) });
+			if (Config::telemetry && !fresh) {
+				static int s_n = 0;
+				if (s_n++ % 30 == 0) {
+					// the flame's own node: where it is drawn, against where the velocity sends it
+					float npitch = 0.0f, nyaw = 0.0f, npos[3] = { 0, 0, 0 };
+					if (auto node = proj->Get3D()) {
+						const auto& r = node->world.rotate;
+						const RE::NiPoint3 f{ r.entry[0][1], r.entry[1][1], r.entry[2][1] };
+						npitch = std::asin(std::clamp(f.z, -1.0f, 1.0f));
+						nyaw = std::atan2(f.x, f.y);
+						npos[0] = node->world.translate.x; npos[1] = node->world.translate.y; npos[2] = node->world.translate.z;
+					}
+					logger::info("AIM stream: pitch {:.3f} yaw {:.3f} toward ({:.0f},{:.0f},{:.0f}) {:.0f} away, ray {} | from ({:.0f},{:.0f},{:.0f}) | node fwd pitch {:.3f} yaw {:.3f} at ({:.0f},{:.0f},{:.0f})", std::asin(dir.z), std::atan2(dir.x, dir.y), target.x, target.y, target.z, len, s_hit ? "hit" : "open sky", pos.x, pos.y, pos.z, npitch, nyaw, npos[0], npos[1], npos[2]);
+				}
+			}
 			if (Config::telemetry && fresh) logger::info("AIM projectile turned: pitch {:.3f} -> {:.3f} toward ({:.0f},{:.0f},{:.0f}) {:.0f} away", oldPitch, std::asin(dir.z), target.x, target.y, target.z, len);
 		}
 	};

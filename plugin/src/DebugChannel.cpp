@@ -338,6 +338,25 @@ void DebugChannel::Poll()
 			// draw 1 | 0: weapons and hands out or away (the UAT harness)
 			if (player) player->DrawWeaponMagicHands(arg == "1");
 			logger::info("debug: draw {}", arg);
+		} else if (cmd == "pad") {
+			// pad <a|y> <1|0>: a gamepad button down or up through the game's own input queue, with the event the default
+			// bindings give it (the UAT harness)
+			std::string state;
+			in >> state;
+			const bool        a = arg == "a", down = state == "1";
+			const std::uint32_t code = a ? 0x1000u : 0x8000u;
+			if (auto queue = RE::BSInputEventQueue::GetSingleton()) {
+				auto events = RE::UserEvents::GetSingleton();
+				auto event = RE::ButtonEvent::Create(RE::INPUT_DEVICE::kGamepad, a ? events->activate : events->jump, code, down ? 1.0f : 0.0f, down ? 0.0f : 0.1f);
+				queue->PushOntoInputQueue(event);
+			}
+			logger::info("debug: pad {} {}", arg, state);
+		} else if (cmd == "look") {
+			// look <pitch> <yaw>: where the player (and the camera) faces, radians, positive pitch is down (the UAT harness)
+			std::string yaw;
+			in >> yaw;
+			if (player) player->SetAngle({ std::stof(arg), player->GetAngleY(), std::stof(yaw) });
+			logger::info("debug: look {} {}", arg, yaw);
 		} else if (cmd == "pitch") {
 			// pitch <radians>: where the player looks, up or down (positive is down), as the mouse would (the UAT harness)
 			if (player) player->SetAngle({ std::stof(arg), player->GetAngleY(), player->GetAngleZ() });
