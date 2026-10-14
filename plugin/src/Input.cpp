@@ -66,6 +66,28 @@ namespace
 	};
 }
 
+void Input::SetSprintBound(bool a_bound)
+{
+	static std::vector<std::pair<RE::ControlMap::UserEventMapping*, std::uint16_t>> s_saved;
+	auto map = RE::ControlMap::GetSingleton();
+	if (!map) return;
+	if (!a_bound && s_saved.empty()) {
+		auto context = map->controlMap[RE::UserEvents::INPUT_CONTEXT_ID::kGameplay];
+		if (!context) return;
+		for (auto& list : context->deviceMappings)
+			for (auto& m : list)
+				if (m.eventID == "Sprint"sv) {
+					s_saved.emplace_back(&m, m.inputKey);
+					m.inputKey = 0xFF;   // no key
+				}
+		logger::info("controls: Sprint unbound ({} mappings)", s_saved.size());
+	} else if (a_bound && !s_saved.empty()) {
+		for (auto& [m, key] : s_saved) m->inputKey = key;
+		logger::info("controls: Sprint bound again");
+		s_saved.clear();
+	}
+}
+
 void Input::Register()
 {
 	if (auto mgr = RE::BSInputDeviceManager::GetSingleton()) {

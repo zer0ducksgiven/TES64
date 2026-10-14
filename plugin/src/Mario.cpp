@@ -424,6 +424,7 @@ void Mario::Enable(RE::PlayerCharacter* a_player)
 	Combat::Reset();
 
 	if (auto controls = RE::ControlMap::GetSingleton()) controls->ToggleControls(kTakenControls, false, false);
+	Input::SetSprintBound(false);
 	if (Render::Show()) {
 		SetPlayerVisible(a_player, false);
 		Camera::Apply(160.0f * Config::scale);   // Mario is ~160 SM64 units tall
@@ -494,6 +495,7 @@ void Mario::Disable()
 	Sm64::mario_delete(_id);
 	_id = -1;
 	if (auto controls = RE::ControlMap::GetSingleton()) controls->ToggleControls(kTakenControls, true, false);
+	Input::SetSprintBound(true);
 	logger::info("Mario mode off");
 }
 

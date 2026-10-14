@@ -10,6 +10,8 @@ public:
 		return &singleton;
 	}
 	static void Register();
+	// Skyrim's Sprint taken off every device while Mario is out (restored after): no sprint, so none of its camera effects
+	static void SetSprintBound(bool a_bound);
 
 	std::atomic<bool> a{ false };   // Skyrim's Jump
 	std::atomic<bool> b{ false };   // Config::attackKey; the pad's Y
