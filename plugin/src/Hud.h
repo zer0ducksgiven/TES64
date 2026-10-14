@@ -10,6 +10,7 @@ namespace Hud
 	void DumpFlash();   // debug: the HUD movie's clips in the log
 	bool DebugSetClip(const char* a_path, bool a_visible);   // debug: show / hide a clip of the HUD by path
 	void DebugWipe(bool a_on);   // debug: the Bowser wipe without dying
+	void MenuEvent(std::string_view a_name, bool a_opening);   // a menu opened or closed: the HUD fades out behind the ones that cover the game
 	void RequestSnapshot();                                       // telemetry: the next frame is written to TES64_snap.bmp                                          // the swap chain's Present
 
 	// main thread, every frame

@@ -23,6 +23,7 @@ namespace
 		{
 			if (!a_event) return RE::BSEventNotifyControl::kContinue;
 			if (!a_event->opening && a_event->menuName == RE::JournalMenu::MENU_NAME) Config::LoadMcm();
+			Hud::MenuEvent(a_event->menuName.c_str(), a_event->opening);
 			// the UAT harness: tutorial popups pause the game and nobody is there to answer them, so telemetry builds close them
 			if (Config::telemetry && a_event->opening && a_event->menuName == RE::TutorialMenu::MENU_NAME)
 				if (auto queue = RE::UIMessageQueue::GetSingleton()) queue->AddMessage(RE::TutorialMenu::MENU_NAME, RE::UI_MESSAGE_TYPE::kHide, nullptr);

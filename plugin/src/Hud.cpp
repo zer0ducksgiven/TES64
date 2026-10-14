@@ -8,6 +8,7 @@
 #include <dxgi.h>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -63,6 +64,7 @@ namespace
 	ID3D11PixelShader*        s_ps = nullptr;
 	ID3D11InputLayout*        s_layout = nullptr;
 	ID3D11Buffer*             s_vb = nullptr;
+	ID3D11Buffer*             s_fadeCb = nullptr;
 	ID3D11BlendState*         s_blend = nullptr;
 	ID3D11SamplerState*       s_sampler = nullptr;
 	ID3D11RasterizerState*    s_raster = nullptr;
@@ -78,10 +80,11 @@ namespace
 	const char* kShader = R"(
 		struct VSIn { float2 pos : POSITION; float2 uv : TEXCOORD; };
 		struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };
+		cbuffer Fade : register(b0) { float fade; float3 pad; };
 		Texture2D tex : register(t0);
 		SamplerState smp : register(s0);
 		PSIn vs(VSIn i) { PSIn o; o.pos = float4(i.pos, 0, 1); o.uv = i.uv; return o; }
-		float4 ps(PSIn i) : SV_TARGET { return tex.Sample(smp, i.uv); }
+		float4 ps(PSIn i) : SV_TARGET { float4 c = tex.Sample(smp, i.uv); c.a *= fade; return c; }
 	)";
 
 	bool CreateGpu(IDXGISwapChain* a_swap)
@@ -107,6 +110,8 @@ namespace
 
 		D3D11_BUFFER_DESC bd{ sizeof(Vtx) * 6 * kMaxQuads, D3D11_USAGE_DYNAMIC, D3D11_BIND_VERTEX_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
 		s_device->CreateBuffer(&bd, nullptr, &s_vb);
+		D3D11_BUFFER_DESC cbd{ 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
+		s_device->CreateBuffer(&cbd, nullptr, &s_fadeCb);
 
 		D3D11_BLEND_DESC blend{};
 		blend.RenderTarget[0] = { TRUE, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD,
@@ -133,7 +138,7 @@ namespace
 				tex->Release();
 			}
 		}
-		return s_vs && s_ps && s_layout && s_vb && s_blend && s_sampler && s_raster && s_depth;
+		return s_vs && s_ps && s_layout && s_vb && s_fadeCb && s_blend && s_sampler && s_raster && s_depth;
 	}
 
 	// ---- drawing: quads in pixels, one texture per draw ------------------------------------------------------
@@ -145,7 +150,7 @@ namespace
 		float        angle = 0.0f;                                  // radians, clockwise on screen, about the quad's centre
 	};
 
-	void Draw(IDXGISwapChain* a_swap, const std::vector<Quad>& a_quads)
+	void Draw(IDXGISwapChain* a_swap, const std::vector<Quad>& a_quads, float a_fade = 1.0f)
 	{
 		ID3D11Texture2D* back = nullptr;
 		if (FAILED(a_swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back)))) return;
@@ -175,6 +180,7 @@ namespace
 		ID3D11PixelShader*       oldPs = nullptr;
 		ID3D11ShaderResourceView* oldSrv = nullptr;
 		ID3D11SamplerState*      oldSampler = nullptr;
+		ID3D11Buffer*            oldCb = nullptr;
 		auto c = s_context;
 		c->OMGetRenderTargets(1, &oldRtv, &oldDsv);
 		c->OMGetBlendState(&oldBlend, oldFactor, &oldMask);
@@ -188,6 +194,7 @@ namespace
 		c->PSGetShader(&oldPs, nullptr, nullptr);
 		c->PSGetShaderResources(0, 1, &oldSrv);
 		c->PSGetSamplers(0, 1, &oldSampler);
+		c->PSGetConstantBuffers(0, 1, &oldCb);
 
 		const float W = static_cast<float>(bdesc.Width), H = static_cast<float>(bdesc.Height);
 		D3D11_VIEWPORT vp{ 0, 0, W, H, 0, 1 };
@@ -204,6 +211,13 @@ namespace
 		c->VSSetShader(s_vs, nullptr, 0);
 		c->PSSetShader(s_ps, nullptr, 0);
 		c->PSSetSamplers(0, 1, &s_sampler);
+		D3D11_MAPPED_SUBRESOURCE cm{};
+		if (SUCCEEDED(c->Map(s_fadeCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &cm))) {
+			const float fade[4] = { a_fade, 0, 0, 0 };
+			std::memcpy(cm.pData, fade, sizeof(fade));
+			c->Unmap(s_fadeCb, 0);
+		}
+		c->PSSetConstantBuffers(0, 1, &s_fadeCb);
 
 		D3D11_MAPPED_SUBRESOURCE m{};
 		const int n = std::min<int>(static_cast<int>(a_quads.size()), kMaxQuads);
@@ -243,7 +257,8 @@ namespace
 		c->PSSetShader(oldPs, nullptr, 0);
 		c->PSSetShaderResources(0, 1, &oldSrv);
 		c->PSSetSamplers(0, 1, &oldSampler);
-		for (IUnknown* u : std::initializer_list<IUnknown*>{ oldRtv, oldDsv, oldBlend, oldDepth, oldRaster, oldLayout, oldVb, oldVs, oldPs, oldSrv, oldSampler })
+		c->PSSetConstantBuffers(0, 1, &oldCb);
+		for (IUnknown* u : std::initializer_list<IUnknown*>{ oldRtv, oldDsv, oldBlend, oldDepth, oldRaster, oldLayout, oldVb, oldVs, oldPs, oldSrv, oldSampler, oldCb })
 			if (u) u->Release();
 		rtv->Release();
 	}
@@ -477,6 +492,46 @@ namespace
 		return a_x1 > a_x0;
 	}
 
+	// ---- fading out for loading screens, door fades and the menus that cover the game ---------------------------------
+	// Skyrim hides its own HUD behind these; Mario's is drawn on the swap chain, so it fades itself: out over a quarter of a
+	// second as one opens, back in as the last one closes.
+	std::mutex                      s_menuLock;
+	std::unordered_set<std::string> s_hideMenus;
+	std::atomic<int>                s_hideCount{ 0 };
+	std::atomic<float>              s_fade{ 1.0f };
+
+	bool HidesHud(std::string_view a_name)
+	{
+		static const std::unordered_set<std::string_view> kNames = {
+			RE::LoadingMenu::MENU_NAME, RE::FaderMenu::MENU_NAME, RE::MainMenu::MENU_NAME, RE::InventoryMenu::MENU_NAME, RE::MagicMenu::MENU_NAME,
+			RE::MapMenu::MENU_NAME, RE::JournalMenu::MENU_NAME, RE::StatsMenu::MENU_NAME, RE::ContainerMenu::MENU_NAME, RE::BarterMenu::MENU_NAME,
+			RE::GiftMenu::MENU_NAME, RE::LockpickingMenu::MENU_NAME, RE::BookMenu::MENU_NAME, RE::TweenMenu::MENU_NAME, RE::SleepWaitMenu::MENU_NAME,
+			RE::LevelUpMenu::MENU_NAME, RE::FavoritesMenu::MENU_NAME, RE::CraftingMenu::MENU_NAME, RE::TrainingMenu::MENU_NAME, RE::RaceSexMenu::MENU_NAME,
+		};
+		return kNames.contains(a_name);
+	}
+
+	// called every frame from the swap chain's Present: eases the fade toward where the open menus want it
+	float StepFade()
+	{
+		static auto s_last = std::chrono::steady_clock::now();
+		const auto  now = std::chrono::steady_clock::now();
+		const float dt = std::min(0.1f, std::chrono::duration<float>(now - s_last).count());
+		s_last = now;
+		const float target = s_hideCount.load() > 0 ? 0.0f : 1.0f;
+		float       f = s_fade.load();
+		f = f < target ? std::min(target, f + dt / 0.25f) : std::max(target, f - dt / 0.25f);
+		s_fade = f;
+		if (Config::telemetry) {
+			static float s_logged = 1.0f;
+			if (std::abs(f - s_logged) >= 0.25f || ((f == 0.0f || f == 1.0f) && f != s_logged)) {
+				logger::info("HUD fade {:.2f} (hiding menus: {})", f, s_hideCount.load());
+				s_logged = f;
+			}
+		}
+		return f;
+	}
+
 	// the HUD menu's own draw: Mario's compass goes on first, so Skyrim's markers come out on top of it
 	struct HudDisplayHook
 	{
@@ -487,8 +542,8 @@ namespace
 				std::scoped_lock l(s_lock);
 				st = s_state;
 			}
-			if (st.show && st.compass && s_gpuReady && s_swap && s_backWidth)
-				Draw(s_swap, CompassLayout(st, static_cast<float>(s_backWidth), static_cast<float>(s_backHeight), false));
+			if (st.show && st.compass && s_gpuReady && s_swap && s_backWidth && s_fade.load() > 0.004f)
+				Draw(s_swap, CompassLayout(st, static_cast<float>(s_backWidth), static_cast<float>(s_backHeight), false), s_fade.load());
 			original(a_this);
 		}
 		static inline REL::Relocation<decltype(PostDisplay)> original;
@@ -497,6 +552,7 @@ namespace
 	HRESULT STDMETHODCALLTYPE PresentHook(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 	{
 		s_swap = a_swap;
+		const float fade = StepFade();   // every frame, drawn or not, so it keeps moving whatever the HUD is doing
 		State st;
 		{
 			std::scoped_lock l(s_lock);
@@ -514,8 +570,8 @@ namespace
 				const auto start = std::chrono::steady_clock::now();
 				s_backWidth = d.BufferDesc.Width;
 				s_backHeight = d.BufferDesc.Height;
-				if (st.show) Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
-				if (st.show && st.compass) Draw(a_swap, CompassLayout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height), true));
+				if (st.show && fade > 0.004f) Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)), fade);
+				if (st.show && st.compass && fade > 0.004f) Draw(a_swap, CompassLayout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height), true), fade);
 				if (st.wipe >= 0.0f) Draw(a_swap, WipeLayout(st.wipe, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
 				if (s_snapRequested.exchange(false)) Snapshot(a_swap);
 				s_drawMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -753,6 +809,15 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 	s_images["compass_pointer"] = MakePointer();
 	logger::info("hud: {} graphics from the ROM", s_images.size());
 	return !s_images.empty();
+}
+
+void Hud::MenuEvent(std::string_view a_name, bool a_opening)
+{
+	if (!HidesHud(a_name)) return;
+	std::scoped_lock l(s_menuLock);
+	if (a_opening) s_hideMenus.insert(std::string(a_name));
+	else s_hideMenus.erase(std::string(a_name));
+	s_hideCount = static_cast<int>(s_hideMenus.size());
 }
 
 bool Hud::DebugSetClip(const char* a_path, bool a_visible) { return SetClipVisible(a_path, a_visible); }
