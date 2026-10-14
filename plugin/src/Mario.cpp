@@ -159,6 +159,12 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 	else s_deathStill = 0.0f;
 	s_deathFrame = dying ? _state.animFrame : -1;
 	Hud::Tick(a_player, Active(), static_cast<int>(_state.health >> 8), dying && s_deathStill > 0.3f, a_delta);
+	// Mario's death takes his coins with it: uncollected gold goes back where it came from (as when he's put away), before
+	// the game brings him back at his last save
+	static bool s_playerDead = false;
+	const bool  playerDead = a_player->IsDead();
+	if (Active() && playerDead && !s_playerDead) Coins::Reset();
+	s_playerDead = playerDead;
 	if (Sm64::audio_volume) {
 		auto ui = RE::UI::GetSingleton();
 		const int want = Active() && !(ui && ui->GameIsPaused()) ? Config::volume : 0;
