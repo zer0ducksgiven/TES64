@@ -56,7 +56,10 @@ void Aim::Tick(RE::PlayerCharacter* a_player)
 			if (!proj) continue;
 			auto& rd = proj->GetProjectileRuntimeData();
 			if (rd.shooter.get().get() != a_player) continue;
-			if (!s_done.insert(h.native_handle()).second) continue;
+			// a shot is turned once; a stream (Flames, Sparks) is one projectile that lives as long as the cast, so it follows
+			// the crosshair every frame
+			const bool fresh = s_done.insert(h.native_handle()).second;
+			if (!fresh && !proj->IsFlameProjectile() && !proj->IsBeamProjectile()) continue;
 			if (!have) {
 				if (!CrosshairPoint(a_player, target)) return;
 				have = true;
@@ -72,7 +75,7 @@ void Aim::Tick(RE::PlayerCharacter* a_player)
 			rd.linearVelocity = dir * speed;
 			rd.velocity = dir * (std::sqrt(rd.velocity.x * rd.velocity.x + rd.velocity.y * rd.velocity.y + rd.velocity.z * rd.velocity.z));
 			proj->SetAngle({ -std::asin(dir.z), 0.0f, std::atan2(dir.x, dir.y) });
-			if (Config::telemetry) logger::info("AIM projectile turned: pitch {:.3f} -> {:.3f} toward ({:.0f},{:.0f},{:.0f}) {:.0f} away", oldPitch, std::asin(dir.z), target.x, target.y, target.z, len);
+			if (Config::telemetry && fresh) logger::info("AIM projectile turned: pitch {:.3f} -> {:.3f} toward ({:.0f},{:.0f},{:.0f}) {:.0f} away", oldPitch, std::asin(dir.z), target.x, target.y, target.z, len);
 		}
 	};
 	handleOf(mgr->unlimited);
