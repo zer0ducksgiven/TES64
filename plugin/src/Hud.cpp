@@ -25,6 +25,8 @@ namespace
 		int  stars = 0;
 		float heading = 0.0f;   // the camera's, radians: 0 north, + clockwise (east)
 		bool compass = false;
+		bool sneak = false;   // Mario is crouching or crawling: the stealth meter is up
+		int  stealth = 0;     // 0 hidden, 1 caution (being noticed), 2 detected
 		float wipe = -1.0f;   // the Bowser screen wipe, 0 (open) to 1 (closed); below 0: none
 		// where Skyrim's compass is on screen (pixels; x1 <= x0: not found): Mario's is drawn there, under its markers
 		float compassX0 = 0.0f, compassX1 = 0.0f, compassY = 0.0f, compassPerRadian = 0.0f;
@@ -401,6 +403,23 @@ namespace
 		return q;
 	}
 
+	// the stealth meter: a plank like the compass's, bottom centre in the row of the status meters, with an eye in it that
+	// narrows when Mario is hidden, and opens wide and turns yellow, then red, as he is noticed
+	constexpr float kStealthW = 44.0f, kStealthH = 20.0f;
+	std::vector<Quad> StealthLayout(const State& a_s, float a_width, float a_height)
+	{
+		std::vector<Quad> q;
+		const float s = a_height / 240.0f * 0.75f * Config::hudScale;
+		const float x = (a_width - kStealthW * s) / 2, y = a_height - (kMargin + kStealthH) * s;
+		if (auto plate = Img("stealth_plate")) q.push_back({ plate, x, y, kStealthW * s, kStealthH * s });
+		static const char* eyes[] = { "stealth_eye_hidden", "stealth_eye_caution", "stealth_eye_detected" };
+		if (auto eye = Img(eyes[std::clamp(a_s.stealth, 0, 2)])) {
+			const float w = 28.0f * s, h = 14.0f * s;
+			q.push_back({ eye, x + (kStealthW * s - w) / 2, y + (kStealthH * s - h) / 2, w, h });
+		}
+		return q;
+	}
+
 	// time the HUD takes per frame (telemetry: logged with the HUD line, once a second)
 	UINT   s_backWidth = 0, s_backHeight = 0;
 	double s_drawMs = 0.0;
@@ -549,6 +568,18 @@ namespace
 		static inline REL::Relocation<decltype(PostDisplay)> original;
 	};
 
+	// the stealth meter fades in as Mario crouches and out as he stands, over a quarter of a second like the rest
+	float StepStealthFade(bool a_up)
+	{
+		static auto  s_last = std::chrono::steady_clock::now();
+		static float s_alpha = 0.0f;
+		const auto   now = std::chrono::steady_clock::now();
+		const float  dt = std::min(0.1f, std::chrono::duration<float>(now - s_last).count());
+		s_last = now;
+		s_alpha = a_up ? std::min(1.0f, s_alpha + dt / 0.25f) : std::max(0.0f, s_alpha - dt / 0.25f);
+		return s_alpha;
+	}
+
 	HRESULT STDMETHODCALLTYPE PresentHook(IDXGISwapChain* a_swap, UINT a_sync, UINT a_flags)
 	{
 		s_swap = a_swap;
@@ -558,6 +589,7 @@ namespace
 			std::scoped_lock l(s_lock);
 			st = s_state;
 		}
+		const float stealthFade = StepStealthFade(st.show && st.sneak);
 		if ((st.show || st.wipe >= 0.0f) && !s_gpuFailed) {
 			if (!s_gpuReady) {
 				s_gpuReady = CreateGpu(a_swap);
@@ -572,6 +604,7 @@ namespace
 				s_backHeight = d.BufferDesc.Height;
 				if (st.show && fade > 0.004f) Draw(a_swap, Layout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)), fade);
 				if (st.show && st.compass && fade > 0.004f) Draw(a_swap, CompassLayout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height), true), fade);
+				if (st.show && stealthFade * fade > 0.004f) Draw(a_swap, StealthLayout(st, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)), stealthFade * fade);
 				if (st.wipe >= 0.0f) Draw(a_swap, WipeLayout(st.wipe, static_cast<float>(d.BufferDesc.Width), static_cast<float>(d.BufferDesc.Height)));
 				if (s_snapRequested.exchange(false)) Snapshot(a_swap);
 				s_drawMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -654,14 +687,63 @@ namespace
 		});
 	}
 
+	RE::StealthMeter* FindStealthMeter()
+	{
+		auto ui = RE::UI::GetSingleton();
+		auto menu = ui ? ui->GetMenu<RE::HUDMenu>() : nullptr;
+		if (!menu) return nullptr;
+		static const std::uintptr_t vtbl = REL::Relocation<std::uintptr_t>{ RE::VTABLE_StealthMeter[0] }.address();
+		for (auto object : menu->GetRuntimeData().objects)
+			if (object && *reinterpret_cast<std::uintptr_t*>(object) == vtbl) return static_cast<RE::StealthMeter*>(object);
+		return nullptr;
+	}
+
+	// Skyrim's stealth meter shown or hidden: the whole clip, its eye and its text
+	void SetStealthVanillaVisible(bool a_visible)
+	{
+		SetClipVisible("StealthMeterInstance", a_visible);
+		if (auto meter = FindStealthMeter()) {
+			for (RE::GFxValue* clip : { &meter->stealthMeter, &meter->sneakAnim, &meter->sneakTextHolder }) {
+				RE::GFxValue::DisplayInfo info;
+				if (clip->IsDisplayObject() && clip->GetDisplayInfo(&info)) {
+					info.SetVisible(a_visible);
+					clip->SetDisplayInfo(info);
+				}
+			}
+		}
+	}
+
+	// what Skyrim's meter says: its word is the detection state (Hidden, Caution / Danger, Detected). 0 hidden, 1 being
+	// noticed, 2 detected; -1 if there's no word to read
+	int ReadStealthState()
+	{
+		auto meter = FindStealthMeter();
+		if (!meter) return -1;
+		RE::GFxValue text;
+		if (!meter->sneakText.IsObject() || !meter->sneakText.GetMember("text", &text) || !text.IsString()) return -1;
+		std::string word = text.GetString();
+		for (auto& c : word) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		if (Config::telemetry) {
+			static std::string s_last;
+			if (word != s_last) {
+				logger::info("stealth: '{}'", word);
+				s_last = word;
+			}
+		}
+		if (word.find("detect") != std::string::npos || word.find("found") != std::string::npos) return 2;
+		if (word.find("caution") != std::string::npos || word.find("danger") != std::string::npos || word.find("search") != std::string::npos) return 1;
+		if (word.find("hidden") != std::string::npos) return 0;
+		return -1;
+	}
+
 	// Skyrim's own health, stamina and magicka bars: hidden while Mario is out, the power meters show the same things.
 	// Also the crosshair with the weapons away, and the compass when Mario's own is drawn. Re-applied now and then
 	// (the HUD shows them again on changes).
 	void SetVanillaVisible(bool a_meters, bool a_crosshair, bool a_compass)
 	{
 		for (const char* clip : { "Health", "Stamina", "Magica" }) SetClipVisible(clip, a_meters);
-		// the stealth meter's eye bar (it gets stuck on screen as Mario crouches); its Hidden / Detected text stays
-		SetClipVisible("StealthMeterInstance.SneakAnimInstance", a_meters);
+		// Skyrim's stealth meter (eye and Hidden / Detected text): Mario's own is drawn instead
+		SetStealthVanillaVisible(a_meters);
 		static bool s_logged = false;
 		const bool  cross = SetClipVisible("CrosshairInstance", a_crosshair) | SetClipVisible("Crosshair", a_crosshair);
 		// the compass's frame goes; its strip of markers (and faint letters, under Mario's) stays, drawn over Mario's
@@ -697,9 +779,9 @@ namespace
 
 // the compass bar: a rounded plank in the POWER frame's wood (tan, lighter on top, a dark brown outline), and a small
 // red pointer for the middle. Generated here, not from the ROM.
-Image MakeCompassBar()
+Image MakeCompassBar(int W = 176)
 {
-	constexpr int W = 176, H = 20;
+	constexpr int H = 20;
 	Image         im{ W, H, std::vector<std::uint8_t>(W * H * 4, 0), nullptr };
 	const float   r = H / 2.0f;
 	for (int y = 0; y < H; y++)
@@ -713,6 +795,29 @@ Image MakeCompassBar()
 			const float dark[3] = { 238, 156, 82 }, light[3] = { 255, 230, 139 };
 			for (int k = 0; k < 3; k++) p[k] = static_cast<std::uint8_t>(dark[k] + (light[k] - dark[k]) * t);
 			p[3] = 230;
+		}
+	return im;
+}
+
+// the stealth meter's eye, in pixels: an almond with a white, a coloured iris and a black pupil, outlined in the plank's
+// brown. open 1 is wide, below that it is narrowed (a squint: Mario is hidden). Generated here, not from the ROM.
+Image MakeEye(float a_open, std::uint8_t r, std::uint8_t g, std::uint8_t b)
+{
+	constexpr int W = 28, H = 14;
+	Image         im{ W, H, std::vector<std::uint8_t>(W * H * 4, 0), nullptr };
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++) {
+			const float u = (x + 0.5f - W / 2.0f) / (W / 2.0f), v = (y + 0.5f - H / 2.0f) / (H / 2.0f);
+			const float lid = a_open * (1.0f - u * u);   // half the eye's height at this column
+			if (lid <= 0.0f || std::abs(v) > lid + 0.12f) continue;
+			std::uint8_t* p = &im.rgba[(y * W + x) * 4];
+			p[3] = 255;
+			if (std::abs(v) > lid - 0.12f) { p[0] = 70; p[1] = 36; p[2] = 10; continue; }   // outline
+			const float ix = u * 2.0f, iy = v * (a_open > 0.99f ? 1.0f : 1.0f / std::max(a_open, 0.3f));   // round iris, clipped by the lid
+			const float d = std::hypot(ix, iy);
+			if (d < 0.38f) { p[0] = 0; p[1] = 0; p[2] = 0; }
+			else if (d < 0.8f) { p[0] = r; p[1] = g; p[2] = b; }
+			else { p[0] = 255; p[1] = 255; p[2] = 255; }
 		}
 	return im;
 }
@@ -807,6 +912,10 @@ bool Hud::Init(const std::uint8_t* a_rom, std::size_t a_len)
 	s_images["wipe_black"] = Image{ 1, 1, { 0, 0, 0, 255 }, nullptr };
 	s_images["compass_bar"] = MakeCompassBar();
 	s_images["compass_pointer"] = MakePointer();
+	s_images["stealth_plate"] = MakeCompassBar(44);
+	s_images["stealth_eye_hidden"] = MakeEye(0.45f, 60, 140, 255);
+	s_images["stealth_eye_caution"] = MakeEye(0.8f, 255, 210, 40);
+	s_images["stealth_eye_detected"] = MakeEye(1.0f, 235, 40, 40);
 	logger::info("hud: {} graphics from the ROM", s_images.size());
 	return !s_images.empty();
 }
@@ -856,7 +965,7 @@ void Hud::InstallHook()
 void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, bool a_deathAnimDone, float a_delta)
 {
 	static float s_countTimer = 0.0f, s_starTimer = 0.0f, s_telTimer = 0.0f, s_vanillaTimer = 0.0f;
-	static int   s_coins = -1, s_stars = 0;
+	static int   s_coins = -1, s_stars = 0, s_stealth = -1;
 	static bool  s_vanillaHidden = false;
 	static double s_vanillaMs = 0.0;
 
@@ -894,6 +1003,7 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 			const auto start = std::chrono::steady_clock::now();
 			const bool drawn = a_player->AsActorState()->IsWeaponDrawn();
 			SetVanillaVisible(false, drawn || !Config::hideCrosshairSheathed, !Config::compass);
+			s_stealth = ReadStealthState();
 			float x0, x1, y, per;
 			if (Config::compass && CompassOnScreen(x0, x1, y, per)) {
 				std::scoped_lock l(s_lock);
@@ -939,6 +1049,8 @@ void Hud::Tick(RE::PlayerCharacter* a_player, bool a_marioActive, int a_wedges, 
 		s_state.stars = s_stars;
 		s_state.compass = Config::compass && a_marioActive;
 		s_state.wipe = wipe;
+		s_state.sneak = a_marioActive && a_player->IsSneaking();
+		if (s_state.sneak && s_stealth >= 0) s_state.stealth = s_stealth;
 		if (auto camera = RE::PlayerCamera::GetSingleton(); camera && camera->cameraRoot) {
 			const auto& r = camera->cameraRoot->world.rotate;   // its forward is the second column
 			s_state.heading = std::atan2(r.entry[0][1], r.entry[1][1]);
