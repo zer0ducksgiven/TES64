@@ -321,7 +321,7 @@ void Combat::Tick(RE::PlayerCharacter* a_player, std::int32_t a_mario, const SM6
 			}
 			const auto handle = actor->CreateRefHandle();
 			const bool stompedAlready = std::find(s_stompedThisJump.begin(), s_stompedThisJump.end(), handle) != s_stompedThisJump.end();
-			if (!hit && falling && !stompedAlready && dxy < 40.0f * scale && a_marioPos.z > pos.z + height * 0.7f && a_marioPos.z < pos.z + height + 30.0f) {
+			if (!hit && falling && !stompedAlready && dxy < 75.0f * scale && a_marioPos.z > pos.z + height * 0.5f && a_marioPos.z < pos.z + height + 60.0f) {
 				// landing on a head: a ground pound hits much harder than a plain stomp; both bounce Mario off
 				const bool pounding = a_state.action == ACT_GROUND_POUND;
 				s_stompedThisJump.push_back(handle);

@@ -22,12 +22,13 @@ grep -q 'sm64_ng64_offer_grab' src/libsm64.c || patch -p1 -s < '$PATCHES/libsm64
 grep -q 'register s64 x1' src/decomp/engine/surface_collision.c || patch -p1 -s < '$PATCHES/libsm64-bigworld.patch'
 # TES64: a spatial grid for static surfaces (Skyrim streams tens of thousands of triangles)
 grep -q 'loaded_surface_iter_begin' src/load_surfaces.c || patch -p1 -s --binary < '$HERE/libsm64-tes64-grid.patch'
-# TES64: Skyrim's terrain is lumpier than SM64's levels. Sliding (and the steep-jump rule) starts at 55 degrees instead of
-# 38 and 30, so ordinary hills are walkable and only really steep ground slides
-grep -q 'TES64 slope' src/decomp/game/mario.c || {
-  sed -i 's|normY = 0.7880108f; //~cos(38 deg)|normY = 0.5735764f; /* TES64 slope: cos(55 deg) */|' src/decomp/game/mario.c
-  sed -i 's|normY = 0.8660254f; // ~cos(30 deg)|normY = 0.5735764f; /* TES64 slope */|' src/decomp/game/mario.c
-}
+# TES64: Skyrim's terrain is lumpier than SM64's levels. Sliding (and the steep-jump rule) starts at 70 degrees instead of
+# 38 and 30, so ordinary hills are walkable and only really steep ground slides. Re-applied on every build, so changing
+# the value here also updates an already-patched tree.
+sed -i -e 's|normY = 0.7880108f; //~cos(38 deg)|normY = 0.3420201f; /* TES64 slope: cos(70 deg) */|' \
+  -e 's|normY = 0.8660254f; // ~cos(30 deg)|normY = 0.3420201f; /* TES64 slope */|' \
+  -e 's|normY = [0-9.]*f; /\* TES64 slope: cos([0-9]* deg) \*/|normY = 0.3420201f; /* TES64 slope: cos(70 deg) */|' \
+  -e 's|normY = [0-9.]*f; /\* TES64 slope \*/|normY = 0.3420201f; /* TES64 slope */|' src/decomp/game/mario.c
 # ...and ordinary slopes only slow Mario a little, so he can climb Skyrim's hills (SM64's own pull is 1.7 a tick)
 grep -q 'TES64 slope pull' src/decomp/game/mario_actions_moving.c || \
   sed -i 's|slopeAccel = 1.7f;|slopeAccel = 0.5f; /* TES64 slope pull */|' src/decomp/game/mario_actions_moving.c
