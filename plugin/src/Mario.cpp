@@ -235,6 +235,10 @@ void Mario::Update(RE::PlayerCharacter* a_player, float a_delta)
 		if (!_savedGravity) _savedGravity = controller->gravity;
 		controller->gravity = 0.0f;
 		controller->fallTime = 0.0f;
+		// Mario's jump leaves Skyrim's controller in its jumping / in-air state (the player is teleported, so it never
+		// lands), and Wait, Sleep and fast travel refuse with "can't while in the air": keep it grounded
+		controller->context.currentState = RE::hkpCharacterStateTypes::kOnGround;
+		controller->wantState = RE::hkpCharacterStateTypes::kOnGround;
 		controller->SetLinearVelocityImpl(RE::hkVector4(0.0f, 0.0f, 0.0f, 0.0f));
 	}
 	// drawn between the last two ticks: the frame's own time along SM64's 30 Hz, so motion is smooth at the game's rate
