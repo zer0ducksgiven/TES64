@@ -7,7 +7,6 @@ namespace
 {
 	std::unordered_map<std::string, float> s_saved;
 	std::optional<float>                   s_savedZoom;
-	constexpr float                        kMinZoom = 0.6f;
 
 	RE::ThirdPersonState* ThirdPerson()
 	{
@@ -39,8 +38,8 @@ bool Camera::EnsureThirdPerson()
 		return true;
 	}
 	// zooming in all the way would put the camera inside Mario: hold a minimum distance (zooming out is free)
-	if (auto tps = ThirdPerson(); tps && cur == tps && tps->targetZoomOffset < kMinZoom) {
-		tps->targetZoomOffset = kMinZoom;
+	if (auto tps = ThirdPerson(); tps && cur == tps && tps->targetZoomOffset < Config::minCameraZoom) {
+		tps->targetZoomOffset = Config::minCameraZoom;
 	}
 	return false;
 }
@@ -56,12 +55,12 @@ void Camera::Apply(float a_marioHeight)
 	Set("fOverShoulderCombatPosZ:Camera", drop + Config::combatCameraLift);
 	Set("fOverShoulderHorseAddY:Camera", 0.0f);
 
-	// pulled back far enough to see him: fully zoomed in, the camera sits on top of a 0.6x Mario
+	// pulled back far enough to see him: fully zoomed in, the camera sits on top of Mario
 	if (auto tps = ThirdPerson()) {
 		if (!s_savedZoom) s_savedZoom = tps->targetZoomOffset;
-		tps->targetZoomOffset = std::max(tps->targetZoomOffset, kMinZoom);
-		tps->currentZoomOffset = std::max(tps->currentZoomOffset, kMinZoom);
-		tps->savedZoomOffset = std::max(tps->savedZoomOffset, kMinZoom);
+		tps->targetZoomOffset = std::max(tps->targetZoomOffset, Config::minCameraZoom);
+		tps->currentZoomOffset = std::max(tps->currentZoomOffset, Config::minCameraZoom);
+		tps->savedZoomOffset = std::max(tps->savedZoomOffset, Config::minCameraZoom);
 	}
 	if (auto camera = RE::PlayerCamera::GetSingleton()) {
 		auto cur = camera->currentState.get();

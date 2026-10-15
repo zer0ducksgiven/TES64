@@ -21,6 +21,7 @@ namespace Config
 	inline bool          bodyPose = true;        // [Mario] bBodyPose: Skyrim's torso and head movement on Mario during attacks
 	inline bool          music = true;           // [Mario] bMusic: SM64 music that follows what you're doing (combat, bosses)
 	inline float         combatCameraLift = 60.0f;   // [Mario] fCombatCameraLift: Skyrim units the camera aims above Mario's head with weapons drawn, so the crosshair clears him
+	inline float         minCameraZoom = 0.15f;   // [Mario] fMinCameraZoom: how close the third-person camera may zoom (0 = on Mario, 1 = Skyrim's farthest)
 	inline bool          deathWipe = true;       // [Mario] bDeathWipe: the Bowser screen wipe and laugh when Mario dies
 	inline bool          reactions = true;       // [Mario] bNPCReactions: people comment on the plumber
 	inline bool          telemetry = false;

@@ -22,6 +22,7 @@ namespace
 		music = ini.GetBoolValue("Mario", "bMusic", music);
 		deathWipe = ini.GetBoolValue("Mario", "bDeathWipe", deathWipe);
 		combatCameraLift = std::clamp(static_cast<float>(ini.GetDoubleValue("Mario", "fCombatCameraLift", combatCameraLift)), 0.0f, 150.0f);
+		minCameraZoom = std::clamp(static_cast<float>(ini.GetDoubleValue("Mario", "fMinCameraZoom", minCameraZoom)), 0.05f, 0.6f);
 		bodyPose = ini.GetBoolValue("Mario", "bBodyPose", bodyPose);
 		hudScale = std::clamp(static_cast<float>(ini.GetDoubleValue("HUD", "fScale", hudScale)), 0.5f, 2.0f);
 		hideCrosshairSheathed = ini.GetBoolValue("HUD", "bHideCrosshair", hideCrosshairSheathed);
